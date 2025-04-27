@@ -1,1 +1,0 @@
-impl future::future::Future<Output = Result<Result<Vec<User>, actix_web::error::error::Error>, BlockingError>>

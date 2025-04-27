@@ -1,1 +1,0 @@
-diesel::query_builder::SelectStatement<schema::users::table, query_builder::select_clause::DefaultSelectClause, query_builder::distinct_clause::NoDistinctClause, query_builder::where_clause::WhereClause<diesel::expression::operators::Eq<schema::users::columns::id, i32>>>

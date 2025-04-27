@@ -1,3 +1,0 @@
-(diesel::sql_types::Uuid, std::option::Option<std::string::String>, std::option::Option<std::string::String>)
-diesel::query_builder::SelectStatement<schema::users::table, query_builder::select_clause::DefaultSelectClause, query_builder::distinct_clause::NoDistinctClause, query_builder::where_clause::WhereClause<diesel::expression::operators::Eq<schema::users::columns::id, i32>>>
-InsertStatement<schema::users::table, ValuesClause<(ColumnInsertValue<schema::users::columns::nick_name, diesel::expression::bound::Bound<diesel::sql_types::Nullable<diesel::sql_types::Text>, &&str>>, ColumnInsertValue<schema::users::columns::sub, diesel::expression::bound::Bound<diesel::sql_types::Nullable<diesel::sql_types::Text>, &&str>>), schema::users::table>>

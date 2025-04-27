@@ -1,7 +1,0 @@
-/Users/ogyukwon/Documents/Projects/BarcodeTasteNoteServer/target/debug/build/pq-sys-eec8ce6afa477653/build_script_build-eec8ce6afa477653: /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pq-sys-0.7.0/build.rs
-
-/Users/ogyukwon/Documents/Projects/BarcodeTasteNoteServer/target/debug/build/pq-sys-eec8ce6afa477653/build_script_build-eec8ce6afa477653.d: /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pq-sys-0.7.0/build.rs
-
-/Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pq-sys-0.7.0/build.rs:
-
-# env-dep:CARGO_MANIFEST_DIR=/Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pq-sys-0.7.0
