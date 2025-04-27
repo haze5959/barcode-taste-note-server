@@ -1,0 +1,12 @@
+/Users/ogyukwon/Documents/Projects/BarcodeTasteNoteServer/target/debug/deps/libuuid-90674051a8fee02d.rmeta: /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/lib.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/builder/mod.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/builder/error.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/error.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/parser/mod.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/parser/error.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/prelude.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/adapter/mod.rs
+
+/Users/ogyukwon/Documents/Projects/BarcodeTasteNoteServer/target/debug/deps/uuid-90674051a8fee02d.d: /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/lib.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/builder/mod.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/builder/error.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/error.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/parser/mod.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/parser/error.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/prelude.rs /Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/adapter/mod.rs
+
+/Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/lib.rs:
+/Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/builder/mod.rs:
+/Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/builder/error.rs:
+/Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/error.rs:
+/Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/parser/mod.rs:
+/Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/parser/error.rs:
+/Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/prelude.rs:
+/Users/ogyukwon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uuid-0.8.2/src/adapter/mod.rs:

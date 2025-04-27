@@ -1,0 +1,1 @@
+InsertStatement<schema::user::table, ValuesClause<(ColumnInsertValue<schema::user::columns::nick_name, diesel::expression::bound::Bound<diesel::sql_types::Nullable<diesel::sql_types::Text>, &&str>>, ColumnInsertValue<schema::user::columns::sub, diesel::expression::bound::Bound<diesel::sql_types::Nullable<diesel::sql_types::Text>, &&str>>), schema::user::table>>

@@ -1,0 +1,1 @@
+AuthenticationError<actix_web_httpauth::headers::www_authenticate::bearer::Bearer>

@@ -1,0 +1,2 @@
+impl std::future::Future<Output = Result<Result<Vec<User>, diesel::result::Error>, BlockingError>>
+impl future::future::Future<Output = Result<Result<Vec<User>, diesel::result::Error>, BlockingError>>

@@ -1,0 +1,1 @@
+(Data<diesel::r2d2::Pool<ConnectionManager<diesel::PgConnection>>>, actix_web::web::Json<InputUser>)

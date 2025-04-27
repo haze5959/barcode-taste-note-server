@@ -1,0 +1,1 @@
+HttpAuthentication<BearerAuth, fn(ServiceRequest, BearerAuth) -> impl std::future::Future<Output = Result<ServiceRequest, actix_web::Error>> {validator}>

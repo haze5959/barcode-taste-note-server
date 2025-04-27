@@ -1,0 +1,1 @@
+pub const DEFAULT_NICK: &str = "주정뱅이";
