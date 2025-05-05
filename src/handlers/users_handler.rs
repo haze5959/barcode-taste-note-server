@@ -16,7 +16,7 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InputUser {
     pub nick_name: Option<String>,
-    pub sub: String,
+    pub token: String,
 }
 
 // ============================================
