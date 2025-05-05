@@ -43,14 +43,12 @@ mod tests {
 
         let body_bytes = to_bytes(res.into_body()).await.unwrap();
         let json: Value = serde_json::from_slice(&body_bytes).unwrap();
-        assert_eq!(json["result"].as_bool(), Some(false));
+        assert_eq!(json["result"].as_bool(), Some(true));
         // if let Some(users) = json.get("data").and_then(|d| d.get("users")) {
         //     println!("Users: {}", users);
         // } else {
         //     println!("Couldn't find users key!");
         // }
-
-        // assert!(res.status().is_success());
 
         // add_user
         // let payload = InputUser {
