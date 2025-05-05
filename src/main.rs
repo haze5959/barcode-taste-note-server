@@ -1,20 +1,12 @@
 use actix_web::{App, HttpServer, middleware::Logger, web};
 use actix_web_httpauth::middleware::HttpAuthentication;
-use diesel::prelude::*;
-use diesel::r2d2::{self, ConnectionManager};
 use dotenv::dotenv;
 
-mod auth;
-mod errors;
-mod handlers;
-mod models;
-mod schema;
-mod constants;
+use diesel::prelude::*;
+use diesel::r2d2::ConnectionManager;
 
-pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
-
-#[macro_use]
-extern crate diesel;
+use barcode_taste_note::handlers;
+use barcode_taste_note::auth;
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
@@ -40,7 +32,6 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("") // 특정 라우트만 인증 적용
                     .wrap(HttpAuthentication::bearer(auth::validator))
-                    
                     .route(
                         "/users",
                         web::delete().to(handlers::users_handler::delete_user),

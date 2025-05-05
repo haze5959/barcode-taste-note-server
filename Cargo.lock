@@ -344,7 +344,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "barcode-taste-note-server"
+name = "barcode_taste_note"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
