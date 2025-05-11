@@ -1,19 +1,24 @@
 #[cfg(test)]
 mod tests {
-    use actix_web::body::to_bytes;
-    use actix_web::{App, middleware::Logger, test, web};
+    use actix_web::http::header;
+    use actix_web::{App, HttpMessage, middleware::Logger, test, web};
     use actix_web_httpauth::middleware::HttpAuthentication;
+    use barcode_taste_note::models::{CommonResponse, User};
     use diesel::prelude::*;
     use diesel::r2d2::ConnectionManager;
     use dotenv::dotenv;
-    use serde_json::Value;
-    use uuid::Uuid; // 해당 모듈에서 DB pool 생성 함수가 필요
 
     use barcode_taste_note::auth;
     use barcode_taste_note::handlers::users_handler::*;
+    use barcode_taste_note::utils::logger::*;
+    use barcode_taste_note::utils::response_mapper::*;
 
     #[actix_web::test]
     async fn test_users() {
+        let auth_token = "token";
+        let name01 = "test_01";
+        let name02 = "test_02";
+
         // setup
         dotenv().ok();
         env_logger::init();
@@ -26,49 +31,86 @@ mod tests {
             .app_data(web::Data::new(pool.clone()))
             .route("/users", web::get().to(get_users))
             .route("/users/{id}", web::get().to(get_user_by_id))
-            .route("/users", web::post().to(add_user))
             .service(
                 web::scope("") // 특정 라우트만 인증 적용
                     .wrap(HttpAuthentication::bearer(auth::validator))
-                    .route("/users", web::delete().to(delete_user)),
+                    .route("/users", web::post().to(add_user))
+                    .route("/users/me", web::get().to(get_my_info))
+                    .route("/users/me", web::put().to(update_user_nick))
+                    .route("/users/me", web::delete().to(delete_user)),
             );
         let test_app = test::init_service(app).await;
 
-        // get_users
+        // GET /users
         let req = test::TestRequest::get().uri("/users").to_request();
+        print_header_log(req.headers());
         let res = test::call_service(&test_app, req).await;
-        for (key, value) in res.headers() {
-            println!("Header: {}: {:?}", key, value);
+        print_response_log(res).await;
+
+        // GET /users/me
+        let req = test::TestRequest::get()
+            .uri("/users/me")
+            .insert_header((header::AUTHORIZATION, auth_token))
+            .to_request();
+        print_header_log(req.headers());
+        let res = test::call_service(&test_app, req).await;
+        let res_model: CommonResponse<User> = response_to_model(res).await;
+        let mut me: User;
+        if res_model.result {
+            me = res_model.data;
+        } else {
+            if res_model.error == Some(1) {
+                // 계정이 없다면 계정을 새로 만든다
+                // POST /users
+                let payload = AddUserParams {
+                    nick_name: Some(name01.to_string()),
+                };
+
+                let req = test::TestRequest::post()
+                    .uri("/users")
+                    .insert_header((header::AUTHORIZATION, auth_token))
+                    .set_json(&payload)
+                    .to_request();
+                let res = test::call_service(&test_app, req).await;
+                let res_model: CommonResponse<User> = response_to_model(res).await;
+                assert!(res_model.result);
+                me = res_model.data;
+            } else {
+                panic!("response fail: {:?}", res_model);
+            }
         }
 
-        let body_bytes = to_bytes(res.into_body()).await.unwrap();
-        let json: Value = serde_json::from_slice(&body_bytes).unwrap();
-        assert_eq!(json["result"].as_bool(), Some(true));
-        // if let Some(users) = json.get("data").and_then(|d| d.get("users")) {
-        //     println!("Users: {}", users);
-        // } else {
-        //     println!("Couldn't find users key!");
-        // }
+        print_model(&me);
 
-        // add_user
-        // let payload = InputUser {
-        //     nick_name: Some("tester".to_string()),
-        //     sub: "sub-1234".to_string(),
-        // };
+        // PUT /users/me
+        let payload = AddUserParams {
+            nick_name: Some(name02.to_string()),
+        };
 
-        // let req = test::TestRequest::post()
-        //     .uri("/users")
-        //     .set_json(&payload)
-        //     .to_request();
-        // let resp = test::call_service(&test_app, req).await;
-        // assert!(resp.status().is_success());
+        let req = test::TestRequest::put()
+            .uri("/users")
+            .insert_header((header::AUTHORIZATION, auth_token))
+            .set_json(&payload)
+            .to_request();
+        let res = test::call_service(&test_app, req).await;
+        let res_model: CommonResponse<User> = response_to_model(res).await;
+        assert!(res_model.result);
 
-        // get_user_by_id
-        // let uri = format!("/users/{}", user.id);
-        // let req = test::TestRequest::get().uri(&uri).to_request();
-        // let resp = test::call_service(&test_app, req).await;
-        // assert!(resp.status().is_success());
+        // GET /users/:id
+        let uri = format!("/users/{}", res_model.data.id);
+        let req = test::TestRequest::get().uri(&uri).to_request();
+        let res = test::call_service(&test_app, req).await;
+        let res_model: CommonResponse<User> = response_to_model(res).await;
+        me = res_model.data;
+        assert!(me.nick_name == name02);
 
-        // delete_user
+        // DELETE /users/me
+        let req = test::TestRequest::delete()
+            .uri("/users/me")
+            .insert_header((header::AUTHORIZATION, auth_token))
+            .to_request();
+        let res = test::call_service(&test_app, req).await;
+        let res_model: CommonResponse<bool> = response_to_model(res).await;
+        assert!(res_model.result && res_model.data);
     }
 }

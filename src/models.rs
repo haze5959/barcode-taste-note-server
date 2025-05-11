@@ -1,16 +1,16 @@
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use crate::schema::*;
 
 // 공통
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CommonResponse<DataT> {
     pub result: bool,
     pub data: DataT,
     pub error: Option<u8>
 }
 
-#[derive(Identifiable, Queryable, Serialize)]
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]
 #[diesel(table_name = users)]
 pub struct User {
     pub id: Uuid,

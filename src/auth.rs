@@ -1,4 +1,5 @@
 use crate::errors::ServiceError;
+use actix_web::HttpMessage;
 use actix_web::{Error, dev::ServiceRequest};
 use actix_web_httpauth::extractors::AuthenticationError;
 use actix_web_httpauth::extractors::bearer::{BearerAuth, Config};
@@ -20,6 +21,7 @@ pub async fn validator(
     match validate_token(credentials.token()) {
         Ok(claims) => {
             debug!("claims {:?}", claims);
+            req.extensions_mut().insert(claims.sub);
             Ok(req)
         },
         Err(_) => {

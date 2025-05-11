@@ -28,12 +28,14 @@ async fn main() -> std::io::Result<()> {
                 "/users/{id}",
                 web::get().to(handlers::users_handler::get_user_by_id),
             )
-            .route("/users", web::post().to(handlers::users_handler::add_user))
             .service(
                 web::scope("") // 특정 라우트만 인증 적용
                     .wrap(HttpAuthentication::bearer(auth::validator))
+                    .route("/users", web::post().to(handlers::users_handler::add_user))
+                    .route("/users/me", web::get().to(handlers::users_handler::get_my_info))
+                    .route("/users/me", web::put().to(handlers::users_handler::update_user_nick))
                     .route(
-                        "/users",
+                        "/users/me",
                         web::delete().to(handlers::users_handler::delete_user),
                     ),
             )

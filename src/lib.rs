@@ -4,6 +4,7 @@ pub mod handlers;
 pub mod models;
 pub mod schema;
 pub mod constants;
+pub mod utils;
 
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
