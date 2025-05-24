@@ -1,6 +1,8 @@
-use actix_web::{error::ResponseError, HttpResponse};
+use crate::models::CommonResponse;
+use actix_web::{HttpResponse, error::ResponseError};
 use derive_more::Display;
-use serde::Serialize;
+use diesel::result::Error::{self, NotFound};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Display, Serialize)]
 pub enum ServiceError {
@@ -18,6 +20,15 @@ pub enum ServiceError {
 
     #[display(fmt = "JWKSFetchError")]
     JWKSFetchError,
+
+    #[display(fmt = "ResponseError: {}", _0)]
+    ResponseError(CommonResponseError),
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize)]
+pub enum CommonResponseError {
+    RecordNotFound = 100,
 }
 
 // impl ResponseError trait allows to convert our errors into http responses with appropriate data
@@ -31,12 +42,29 @@ impl ResponseError for ServiceError {
                 HttpResponse::InternalServerError().json("Internal DB Error, Please try later")
             }
             ServiceError::BadRequest(message) => HttpResponse::BadRequest().json(message),
-            ServiceError::DuplicatedError => {
-                HttpResponse::InternalServerError().json("Duplicated")
+            ServiceError::DuplicatedError => HttpResponse::InternalServerError().json("Duplicated"),
+            ServiceError::ResponseError(error) => {
+                let response: CommonResponse<Option<()>> = CommonResponse {
+                    result: false,
+                    data: None,
+                    error: Some(*error as u8),
+                };
+
+                return HttpResponse::Ok().json(response);
             }
             ServiceError::JWKSFetchError => {
                 HttpResponse::InternalServerError().json("Could not fetch JWKS")
             }
         }
     }
+}
+
+pub fn handler_disel_error(error: Error) -> ServiceError {
+    return match error {
+        NotFound => ServiceError::ResponseError(CommonResponseError::RecordNotFound),
+        _ => {
+            eprintln!("[DB Error] {}", error.to_string());
+            ServiceError::InternalDBError
+        }
+    };
 }

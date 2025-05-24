@@ -6,6 +6,7 @@ use crate::errors::ServiceError;
 use crate::models::{CommonResponse, NewUser, User};
 use crate::schema::users::dsl::*;
 use crate::utils::auth::{get_sub};
+use crate::errors::handler_disel_error;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use diesel::dsl::{delete, exists, insert_into, select};
 use diesel::expression_methods::*;
@@ -114,12 +115,13 @@ pub async fn update_user_nick(
 /// Path: /users/me
 pub async fn delete_user(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpResponse, Error> {
     let user_sub = get_sub(req)?;
-    Ok(
-        web::block(move || delete_single_user(db, user_sub.as_str()))
-            .await?
-            .map(|result| HttpResponse::Ok().json(result))
-            .map_err(|_| ServiceError::InternalServerError)?,
-    )
+    let delete_result = web::block(move || delete_single_user(db, user_sub.as_str())).await??;
+    let response = CommonResponse {
+        result: true,
+        data: delete_result,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
 }
 
 // ============================================
@@ -129,7 +131,7 @@ fn get_all_users(pool: web::Data<Pool>) -> Result<Vec<User>, ServiceError> {
     let conn = &mut pool.get().unwrap();
     let items = users
         .load::<User>(conn)
-        .map_err(|_| ServiceError::InternalDBError)?;
+        .map_err(|e| handler_disel_error(e))?;
     Ok(items)
 }
 
@@ -138,7 +140,7 @@ fn get_users_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<User, Ser
     let items = users
         .filter(sub.eq(user_sub))
         .first::<User>(conn)
-        .map_err(|_| ServiceError::InternalDBError)?;
+        .map_err(|e| handler_disel_error(e))?;
     Ok(items)
 }
 
@@ -147,7 +149,7 @@ fn db_get_user_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<User, Servi
     let items = users
         .find(user_id)
         .get_result::<User>(conn)
-        .map_err(|_| ServiceError::InternalDBError)?;
+        .map_err(|e| handler_disel_error(e))?;
     Ok(items)
 }
 
@@ -162,7 +164,7 @@ fn add_single_user(
             let user_count = users
                 .count()
                 .get_result::<i64>(conn)
-                .map_err(|_| ServiceError::InternalDBError)?;
+                .map_err(|e| handler_disel_error(e))?;
             Ok(format!("{DEFAULT_NICK}{user_count}"))
         },
         |n| Ok(n.to_string()),
@@ -175,7 +177,7 @@ fn add_single_user(
             .or_filter(sub.eq(user_sub)),
     ))
     .get_result(conn)
-    .map_err(|_| ServiceError::InternalDBError)?;
+    .map_err(|e| handler_disel_error(e))?;
 
     if is_duplicate {
         return Err(ServiceError::DuplicatedError);
@@ -191,7 +193,7 @@ fn add_single_user(
     let res = insert_into(users)
         .values(&new_user)
         .get_result(conn)
-        .map_err(|_| ServiceError::InternalDBError)?;
+        .map_err(|e| handler_disel_error(e))?;
     Ok(res)
 }
 
@@ -204,7 +206,7 @@ fn update_single_user_nick(
     let res = diesel::update(users.filter(sub.eq(user_sub)))
         .set(nick_name.eq(item.nick_name.as_str()))
         .get_result::<User>(conn)
-        .map_err(|_| ServiceError::InternalDBError)?;
+        .map_err(|e| handler_disel_error(e))?;
     Ok(res)
 }
 
@@ -212,6 +214,6 @@ fn delete_single_user(db: web::Data<Pool>, user_sub: &str) -> Result<bool, Servi
     let conn = &mut db.get().unwrap();
     let count = delete(users.filter(sub.eq(user_sub)))
         .execute(conn)
-        .map_err(|_| ServiceError::InternalDBError)?;
+        .map_err(|e| handler_disel_error(e))?;
     Ok(count == 1)
 }
