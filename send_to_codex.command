@@ -31,23 +31,17 @@ fi
 TEMPLATE="$(cat "$TEMPLATE_FILE")"
 
 # ====== 입력 받기 ======
-# 인자 2개(Goal Scope)를 주면 그걸 쓰고, 아니면 인터랙티브 입력
-if [[ $# -ge 2 ]]; then
+# 인자 Goal이 주면 그걸 쓰고, 아니면 인터랙티브 입력
+if [[ $# -ge 1 ]]; then
   GOAL="$1"
-  SCOPE="$2"
 else
   echo "Goal을 입력하세요. (여러 줄 가능 / 끝내려면 Ctrl-D)"
   GOAL="$(cat)"
-
-  echo
-  echo "Scope를 입력하세요. (여러 줄 가능 / 끝내려면 Ctrl-D)"
-  SCOPE="$(cat)"
 fi
 
 # ====== 치환 ======
 # bash의 문자열 치환을 써서 {{GOAL}}, {{SCOPE}}를 바꾼다
 PROMPT="${TEMPLATE//\{\{GOAL\}\}/$GOAL}"
-PROMPT="${PROMPT//\{\{SCOPE\}\}/$SCOPE}"
 
 # ====== 최종 프롬프트 출력(확인용) ======
 echo
