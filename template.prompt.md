@@ -12,6 +12,7 @@
 - ORM: [Diesel](https://github.com/diesel-rs/diesel)
     - [예제](https://github.com/actix/examples/tree/master/databases/diesel)
 - DB postgreSQL
+- static image server는 actix_files::Files을 이용하여 구현
 
 ## Architecture Rules (MUST)
 - 요청 해더와 응답값은 다음과 같은 공통 포멧을 따름
