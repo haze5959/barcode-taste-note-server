@@ -5,7 +5,7 @@ use crate::diesel::RunQueryDsl;
 use crate::errors::ServiceError;
 use crate::models::{CommonResponse, NewUser, User};
 use crate::schema::users::dsl::*;
-use crate::utils::auth::{get_sub};
+use crate::utils::auth::get_sub;
 use crate::errors::handler_disel_error;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use diesel::dsl::{delete, exists, insert_into, select};
