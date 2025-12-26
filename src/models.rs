@@ -72,3 +72,36 @@ pub struct ProductImage {
     pub note_id: Option<Uuid>,
     pub user_id: Option<Uuid>
 }
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = product_images)]
+pub struct NewProductImage {
+    pub id: Uuid,
+    pub barcode_id: Uuid,
+    pub note_id: Option<Uuid>,
+    pub user_id: Option<Uuid>
+}
+
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = notes)]
+pub struct Note {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub barcode_id: Uuid,
+    pub body: Option<String>,
+    pub registerd: chrono::NaiveDate,
+    pub rating: i16,
+    pub public_scope: i16
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = notes)]
+pub struct NewNote {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub barcode_id: Uuid,
+    pub body: Option<String>,
+    pub registerd: chrono::NaiveDate,
+    pub rating: i16,
+    pub public_scope: i16
+}
