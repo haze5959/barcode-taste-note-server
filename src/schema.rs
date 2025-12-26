@@ -53,7 +53,7 @@ diesel::table! {
         #[sql_name = "type"]
         type_ -> Int2,
         desc -> Nullable<Text>,
-        rating -> Nullable<Numeric>,
+        rating -> Nullable<Float4>,
         flavors -> Nullable<Jsonb>,
     }
 }

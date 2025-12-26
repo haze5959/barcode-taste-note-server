@@ -154,11 +154,11 @@ fn db_get_user_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<User, Servi
 }
 
 fn add_single_user(
-    db: web::Data<Pool>,
+    pool: web::Data<Pool>,
     item: web::Json<AddUserParams>,
     user_sub: &str,
 ) -> Result<User, ServiceError> {
-    let conn = &mut db.get().unwrap();
+    let conn = &mut pool.get().unwrap();
     let nick: String = item.nick_name.as_deref().map_or_else(
         || {
             let user_count = users

@@ -25,3 +25,50 @@ pub struct NewUser<'a> {
     pub nick_name: &'a str,
     pub sub: &'a str
 }
+
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = products)]
+pub struct Product {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_: i16,
+    pub desc: Option<String>,
+    pub rating: Option<f32>,
+    pub flavors: Option<serde_json::Value>
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = products)]
+pub struct NewProduct<'a> {
+    pub id: Uuid,
+    pub name: &'a str,
+    #[diesel(column_name = type_)]
+    pub type_: i16,
+    pub desc: Option<&'a str>,
+}
+
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = barcodes)]
+pub struct Barcode {
+    pub id: Uuid,
+    pub barcode_id: String,
+    pub product_id: Uuid
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = barcodes)]
+pub struct NewBarcode<'a> {
+    pub id: Uuid,
+    pub barcode_id: &'a str,
+    pub product_id: Uuid
+}
+
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = product_images)]
+pub struct ProductImage {
+    pub id: Uuid,
+    pub barcode_id: Uuid,
+    pub note_id: Option<Uuid>,
+    pub user_id: Option<Uuid>
+}

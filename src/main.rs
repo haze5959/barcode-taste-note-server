@@ -28,6 +28,10 @@ async fn main() -> std::io::Result<()> {
                 "/users/{id}",
                 web::get().to(handlers::users_handler::get_user_by_id),
             )
+            .route("/products", web::post().to(handlers::products_handlers::create_product))
+            .route("/products", web::get().to(handlers::products_handlers::get_products_list))
+            .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id))
+            .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode))
             .service(
                 web::scope("") // 특정 라우트만 인증 적용
                     .wrap(HttpAuthentication::bearer(auth::validator))
