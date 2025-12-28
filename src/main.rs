@@ -27,11 +27,14 @@ async fn main() -> std::io::Result<()> {
             // Static files service
             .service(Files::new("/static/images", "./static/images").show_files_listing())
             // Public routes
+            // Users
             .route("/users", web::get().to(handlers::users_handler::get_users))
             .route("/users/{id}", web::get().to(handlers::users_handler::get_user_by_id))
+            // Products
             .route("/products", web::get().to(handlers::products_handlers::get_products_list))
             .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id))
             .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode))
+            // Notes
             .route("/notes", web::get().to(handlers::notes_handlers::get_notes_list))
             .route("/notes/{id}", web::get().to(handlers::notes_handlers::get_note_by_id))
             .route("/notes/user/{id}", web::get().to(handlers::notes_handlers::get_notes_by_user))

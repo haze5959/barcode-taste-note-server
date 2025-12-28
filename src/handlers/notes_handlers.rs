@@ -6,6 +6,7 @@ use crate::errors::handler_disel_error;
 use crate::models::{CommonResponse, NewNote, Note, Product, User};
 use crate::schema::{notes, product_images, products, users};
 use crate::utils::auth::get_sub;
+use crate::utils::image_file::move_image_to_deleted;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use chrono::Utc;
 use diesel::dsl::{delete, insert_into};
@@ -382,6 +383,45 @@ fn db_update_note(
         .get_result::<Note>(conn)
         .map_err(|e| handler_disel_error(e))?;
 
+    // 현재 노트에 연결된 이미지 ID들 조회
+    let current_image_ids: Vec<Uuid> = product_images::table
+        .filter(product_images::note_id.eq(note_id))
+        .select(product_images::id)
+        .load::<Uuid>(conn)
+        .map_err(|e| handler_disel_error(e))?;
+
+    // 제거할 이미지들 (현재 있지만 새 리스트에 없음)
+    let images_to_remove: Vec<Uuid> = current_image_ids
+        .iter()
+        .filter(|id| !item.image_ids.contains(id))
+        .cloned()
+        .collect();
+
+    // 추가할 이미지들 (새 리스트에 있지만 현재 없음)
+    let images_to_add: Vec<Uuid> = item.image_ids
+        .iter()
+        .filter(|id| !current_image_ids.contains(id))
+        .cloned()
+        .collect();
+
+    // 제거: product_images의 row 제거
+    for image_id in images_to_remove {
+        // 이미지 파일을 deleted 폴더로 이동
+        let _file_delete_result = move_image_to_deleted(image_id);
+        // DB에서 이미지 삭제
+        delete(product_images::table.find(image_id))
+        .execute(conn)
+        .map_err(|e| handler_disel_error(e))?;
+    }
+
+    // 추가: note_id를 현재 노트로 설정
+    for image_id in images_to_add {
+        diesel::update(product_images::table.find(image_id))
+            .set(product_images::note_id.eq(note_id))
+            .execute(conn)
+            .map_err(|e| handler_disel_error(e))?;
+    }
+
     Ok(updated_note)
 }
 
@@ -406,6 +446,17 @@ fn db_delete_note(
 
     if note.user_id != user.id {
         return Err(ServiceError::BadRequest("Not authorized".to_string()));
+    }
+
+    let image_ids: Vec<Uuid> = product_images::table
+        .filter(product_images::note_id.eq(note_id))
+        .select(product_images::id)
+        .load::<Uuid>(conn)
+        .map_err(|e| handler_disel_error(e))?;
+
+    for image_id in image_ids {
+        // 이미지 파일을 deleted 폴더로 이동
+        let _file_delete_result = move_image_to_deleted(image_id);
     }
 
     // 노트 삭제
