@@ -158,23 +158,16 @@ fn db_get_product_by_id(
         .first::<Product>(conn)
         .map_err(|e| handler_disel_error(e))?;
 
-    // 제품의 바코드 ID들 조회
-    let barcode_ids: Vec<Uuid> = barcodes::table
-        .filter(barcodes::product_id.eq(in_product_id))
-        .select(barcodes::id)
-        .load::<Uuid>(conn)
-        .map_err(|e| handler_disel_error(e))?;
-
     // 제품 이미지 ID들 조회
     let image_ids: Vec<Uuid> = product_images::table
-        .filter(product_images::barcode_id.eq_any(&barcode_ids))
+        .filter(product_images::product_id.eq(in_product_id))
         .select(product_images::id)
         .load::<Uuid>(conn)
         .map_err(|e| handler_disel_error(e))?;
 
     // 좋아요 수 조회
     let favorite_count: i64 = favorites::table
-        .filter(favorites::barcode_id.eq_any(&barcode_ids))
+        .filter(favorites::product_id.eq(in_product_id))
         .select(count(favorites::id))
         .first(conn)
         .map_err(|e| handler_disel_error(e))?;
@@ -206,23 +199,16 @@ fn db_get_product_by_barcode(
         .first::<Product>(conn)
         .map_err(|e| handler_disel_error(e))?;
 
-    // 제품의 모든 바코드 ID들 조회 (좋아요 수 계산용)
-    let barcode_ids: Vec<Uuid> = barcodes::table
-        .filter(barcodes::product_id.eq(product_id))
-        .select(barcodes::id)
-        .load::<Uuid>(conn)
-        .map_err(|e| handler_disel_error(e))?;
-
     // 제품 이미지 ID들 조회
     let image_ids: Vec<Uuid> = product_images::table
-        .filter(product_images::barcode_id.eq_any(&barcode_ids))
+        .filter(product_images::product_id.eq(product_id))
         .select(product_images::id)
         .load::<Uuid>(conn)
         .map_err(|e| handler_disel_error(e))?;
 
     // 좋아요 수 조회
     let favorite_count: i64 = favorites::table
-        .filter(favorites::barcode_id.eq_any(&barcode_ids))
+        .filter(favorites::product_id.eq(product_id))
         .select(count(favorites::id))
         .first(conn)
         .map_err(|e| handler_disel_error(e))?;
@@ -262,16 +248,9 @@ fn db_get_products_list(
     let mut result = Vec::new();
 
     for product in products_list {
-        // 제품의 바코드 ID들 조회
-        let barcode_ids: Vec<Uuid> = barcodes::table
-            .filter(barcodes::product_id.eq(product.id))
-            .select(barcodes::id)
-            .load::<Uuid>(conn)
-            .map_err(|e| handler_disel_error(e))?;
-
         // 제품 이미지 ID들 조회 (최대 3개)
         let image_ids: Vec<Uuid> = product_images::table
-            .filter(product_images::barcode_id.eq_any(&barcode_ids))
+            .filter(product_images::product_id.eq(product.id))
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)

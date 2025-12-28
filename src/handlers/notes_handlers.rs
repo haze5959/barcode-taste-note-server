@@ -2,17 +2,17 @@ use crate::Pool;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::ServiceError;
-use crate::models::{CommonResponse, Note, NewNote, Product, User};
-use crate::schema::{notes, products, users, barcodes, product_images};
 use crate::errors::handler_disel_error;
+use crate::models::{CommonResponse, NewNote, Note, Product, User};
+use crate::schema::{notes, product_images, products, users};
 use crate::utils::auth::get_sub;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
-use diesel::dsl::{insert_into, delete};
+use chrono::Utc;
+use diesel::dsl::{delete, insert_into};
 use diesel::expression_methods::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-use chrono::Utc;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateNoteParams {
@@ -28,6 +28,7 @@ pub struct UpdateNoteParams {
     pub body: Option<String>,
     pub rating: i16,
     pub public_scope: i16,
+    pub image_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,17 +39,9 @@ pub struct NoteListQuery {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct NoteDetailResponse {
+pub struct NoteResponse {
     pub note: Note,
-    pub product: Product,
-    pub user: Option<User>,
-    pub images: Vec<Uuid>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct NoteListItem {
-    pub note: Note,
-    pub product: Product,
+    pub product: Option<Product>,
     pub user: Option<User>,
     pub images: Vec<Uuid>,
 }
@@ -112,7 +105,9 @@ pub async fn get_notes_by_user(
     user_id: web::Path<Uuid>,
     query: web::Query<NoteListQuery>,
 ) -> Result<HttpResponse, Error> {
-    let notes_list = web::block(move || db_get_notes_by_user(db, user_id.into_inner(), query.into_inner())).await??;
+    let notes_list =
+        web::block(move || db_get_notes_by_user(db, user_id.into_inner(), query.into_inner()))
+            .await??;
     let data = HashMap::from([("notes".to_string(), notes_list)]);
     let response = CommonResponse {
         result: true,
@@ -134,7 +129,8 @@ pub async fn update_note(
     item: web::Json<UpdateNoteParams>,
 ) -> Result<HttpResponse, Error> {
     let user_sub = get_sub(req)?;
-    let note = web::block(move || db_update_note(db, note_id.into_inner(), item, user_sub)).await??;
+    let note =
+        web::block(move || db_update_note(db, note_id.into_inner(), item, user_sub)).await??;
     let response = CommonResponse {
         result: true,
         data: note,
@@ -154,7 +150,8 @@ pub async fn delete_note(
     note_id: web::Path<Uuid>,
 ) -> Result<HttpResponse, Error> {
     let user_sub = get_sub(req)?;
-    let _delete_result = web::block(move || db_delete_note(db, note_id.into_inner(), user_sub)).await??;
+    let _delete_result =
+        web::block(move || db_delete_note(db, note_id.into_inner(), user_sub)).await??;
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,
         data: None,
@@ -180,17 +177,11 @@ fn db_create_note(
         .first::<User>(conn)
         .map_err(|e| handler_disel_error(e))?;
 
-    // product_id로 barcode_id 찾기 (첫 번째 바코드 사용)
-    let barcode = barcodes::table
-        .filter(barcodes::product_id.eq(item.product_id))
-        .first::<crate::models::Barcode>(conn)
-        .map_err(|e| handler_disel_error(e))?;
-
     let new_note_id = Uuid::new_v4();
     let new_note = NewNote {
         id: new_note_id,
         user_id: user.id,
-        barcode_id: barcode.id,
+        product_id: item.product_id,
         body: item.body.clone(),
         registerd: Utc::now().naive_utc().date(),
         rating: item.rating,
@@ -213,10 +204,7 @@ fn db_create_note(
     Ok(note)
 }
 
-fn db_get_note_by_id(
-    pool: web::Data<Pool>,
-    note_id: Uuid,
-) -> Result<NoteDetailResponse, ServiceError> {
+fn db_get_note_by_id(pool: web::Data<Pool>, note_id: Uuid) -> Result<NoteResponse, ServiceError> {
     let conn = &mut pool.get().unwrap();
 
     // 노트 조회
@@ -225,26 +213,13 @@ fn db_get_note_by_id(
         .first::<Note>(conn)
         .map_err(|e| handler_disel_error(e))?;
 
-    // 바코드로 제품 조회
-    let barcode = barcodes::table
-        .find(note.barcode_id)
-        .first::<crate::models::Barcode>(conn)
-        .map_err(|e| handler_disel_error(e))?;
-
     let product = products::table
-        .find(barcode.product_id)
+        .find(note.product_id)
         .first::<Product>(conn)
         .map_err(|e| handler_disel_error(e))?;
 
     // 유저 조회 (public_scope에 따라 옵셔널)
-    let user = if note.public_scope == 0 {
-        None
-    } else {
-        users::table
-            .find(note.user_id)
-            .first::<User>(conn)
-            .ok()
-    };
+    let user = users::table.find(note.user_id).first::<User>(conn).ok();
 
     // 이미지 ID들 조회
     let image_ids: Vec<Uuid> = product_images::table
@@ -253,9 +228,9 @@ fn db_get_note_by_id(
         .load::<Uuid>(conn)
         .map_err(|e| handler_disel_error(e))?;
 
-    Ok(NoteDetailResponse {
+    Ok(NoteResponse {
         note,
-        product,
+        product: Some(product),
         user,
         images: image_ids,
     })
@@ -264,7 +239,7 @@ fn db_get_note_by_id(
 fn db_get_notes_list(
     pool: web::Data<Pool>,
     query: NoteListQuery,
-) -> Result<Vec<NoteListItem>, ServiceError> {
+) -> Result<Vec<NoteResponse>, ServiceError> {
     let conn = &mut pool.get().unwrap();
 
     let page = query.page.unwrap_or(1);
@@ -276,14 +251,7 @@ fn db_get_notes_list(
 
     // product_id 필터링
     if let Some(product_id) = query.product_id {
-        // product_id로 barcode_id들 찾기
-        let barcode_ids: Vec<Uuid> = barcodes::table
-            .filter(barcodes::product_id.eq(product_id))
-            .select(barcodes::id)
-            .load::<Uuid>(conn)
-            .map_err(|e| handler_disel_error(e))?;
-
-        notes_query = notes_query.filter(notes::barcode_id.eq_any(barcode_ids));
+        notes_query = notes_query.filter(notes::product_id.eq(product_id));
     }
 
     let notes_list: Vec<Note> = notes_query
@@ -297,25 +265,20 @@ fn db_get_notes_list(
     let mut result = Vec::new();
 
     for note in notes_list {
-        // 바코드로 제품 조회
-        let barcode = barcodes::table
-            .find(note.barcode_id)
-            .first::<crate::models::Barcode>(conn)
-            .map_err(|e| handler_disel_error(e))?;
-
-        let product = products::table
-            .find(barcode.product_id)
+        let product = if query.product_id == None {
+            None
+        } else {
+            products::table
+            .find(note.product_id)
             .first::<Product>(conn)
-            .map_err(|e| handler_disel_error(e))?;
-
+            .ok()
+        };
+         
         // 유저 조회
         let user = if note.public_scope == 0 {
             None
         } else {
-            users::table
-                .find(note.user_id)
-                .first::<User>(conn)
-                .ok()
+            users::table.find(note.user_id).first::<User>(conn).ok()
         };
 
         // 이미지 ID들 조회 (최대 3개)
@@ -326,7 +289,7 @@ fn db_get_notes_list(
             .load::<Uuid>(conn)
             .map_err(|e| handler_disel_error(e))?;
 
-        result.push(NoteListItem {
+        result.push(NoteResponse {
             note,
             product,
             user,
@@ -341,7 +304,7 @@ fn db_get_notes_by_user(
     pool: web::Data<Pool>,
     user_id: Uuid,
     query: NoteListQuery,
-) -> Result<Vec<NoteListItem>, ServiceError> {
+) -> Result<Vec<NoteResponse>, ServiceError> {
     let conn = &mut pool.get().unwrap();
 
     let page = query.page.unwrap_or(1);
@@ -361,26 +324,10 @@ fn db_get_notes_by_user(
     let mut result = Vec::new();
 
     for note in notes_list {
-        // 바코드로 제품 조회
-        let barcode = barcodes::table
-            .find(note.barcode_id)
-            .first::<crate::models::Barcode>(conn)
-            .map_err(|e| handler_disel_error(e))?;
-
         let product = products::table
-            .find(barcode.product_id)
+            .find(note.product_id)
             .first::<Product>(conn)
-            .map_err(|e| handler_disel_error(e))?;
-
-        // 유저 조회
-        let user = if note.public_scope == 0 {
-            None
-        } else {
-            users::table
-                .find(note.user_id)
-                .first::<User>(conn)
-                .ok()
-        };
+            .ok();
 
         // 이미지 ID들 조회 (최대 3개)
         let image_ids: Vec<Uuid> = product_images::table
@@ -390,10 +337,10 @@ fn db_get_notes_by_user(
             .load::<Uuid>(conn)
             .map_err(|e| handler_disel_error(e))?;
 
-        result.push(NoteListItem {
+        result.push(NoteResponse {
             note,
             product,
-            user,
+            user: None,
             images: image_ids,
         });
     }

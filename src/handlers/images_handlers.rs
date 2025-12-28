@@ -3,7 +3,7 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::ServiceError;
 use crate::models::{CommonResponse, ProductImage, NewProductImage, User};
-use crate::schema::{product_images, users, barcodes};
+use crate::schema::{product_images, users};
 use crate::errors::handler_disel_error;
 use crate::utils::auth::get_sub;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
@@ -75,26 +75,10 @@ fn db_create_image(
         .first::<User>(conn)
         .map_err(|e| handler_disel_error(e))?;
 
-    // product_id가 제공된 경우 barcode_id 찾기
-    let barcode_id = if let Some(product_id) = item.product_id {
-        let barcode = barcodes::table
-            .filter(barcodes::product_id.eq(product_id))
-            .first::<crate::models::Barcode>(conn)
-            .map_err(|e| handler_disel_error(e))?;
-        barcode.id
-    } else if item.note_id.is_some() {
-        // note_id가 제공된 경우, 해당 노트의 barcode_id 사용
-        // (실제로는 note에서 barcode_id를 가져와야 하지만, 여기서는 임시로 처리)
-        // TODO: note에서 barcode_id 가져오기
-        return Err(ServiceError::BadRequest("product_id or note with barcode_id is required".to_string()));
-    } else {
-        return Err(ServiceError::BadRequest("product_id or note_id is required".to_string()));
-    };
-
     let new_image_id = Uuid::new_v4();
     let new_image = NewProductImage {
         id: new_image_id,
-        barcode_id,
+        product_id: item.product_id,
         note_id: item.note_id,
         user_id: Some(user.id),
     };

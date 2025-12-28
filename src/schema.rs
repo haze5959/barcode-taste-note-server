@@ -11,7 +11,7 @@ diesel::table! {
 diesel::table! {
     favorites (id) {
         id -> Uuid,
-        barcode_id -> Uuid,
+        product_id -> Uuid,
         user_id -> Uuid,
     }
 }
@@ -29,7 +29,7 @@ diesel::table! {
     notes (id) {
         id -> Uuid,
         user_id -> Uuid,
-        barcode_id -> Uuid,
+        product_id -> Uuid,
         body -> Nullable<Text>,
         registerd -> Date,
         rating -> Int2,
@@ -40,7 +40,7 @@ diesel::table! {
 diesel::table! {
     product_images (id) {
         id -> Uuid,
-        barcode_id -> Uuid,
+        product_id -> Nullable<Uuid>,
         note_id -> Nullable<Uuid>,
         user_id -> Nullable<Uuid>,
     }
@@ -67,11 +67,11 @@ diesel::table! {
 }
 
 diesel::joinable!(barcodes -> products (product_id));
-diesel::joinable!(favorites -> products (barcode_id));
+diesel::joinable!(favorites -> products (product_id));
 diesel::joinable!(flavor_tags -> notes (note_id));
 diesel::joinable!(flavor_tags -> products (product_id));
 diesel::joinable!(product_images -> notes (note_id));
-diesel::joinable!(product_images -> products (barcode_id));
+diesel::joinable!(product_images -> products (product_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     barcodes,

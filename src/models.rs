@@ -68,7 +68,7 @@ pub struct NewBarcode<'a> {
 #[diesel(table_name = product_images)]
 pub struct ProductImage {
     pub id: Uuid,
-    pub barcode_id: Uuid,
+    pub product_id: Option<Uuid>,
     pub note_id: Option<Uuid>,
     pub user_id: Option<Uuid>
 }
@@ -77,7 +77,7 @@ pub struct ProductImage {
 #[diesel(table_name = product_images)]
 pub struct NewProductImage {
     pub id: Uuid,
-    pub barcode_id: Uuid,
+    pub product_id: Option<Uuid>,
     pub note_id: Option<Uuid>,
     pub user_id: Option<Uuid>
 }
@@ -87,7 +87,7 @@ pub struct NewProductImage {
 pub struct Note {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub barcode_id: Uuid,
+    pub product_id: Uuid,
     pub body: Option<String>,
     pub registerd: chrono::NaiveDate,
     pub rating: i16,
@@ -99,7 +99,7 @@ pub struct Note {
 pub struct NewNote {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub barcode_id: Uuid,
+    pub product_id: Uuid,
     pub body: Option<String>,
     pub registerd: chrono::NaiveDate,
     pub rating: i16,
