@@ -8,6 +8,7 @@ use crate::schema::{product_images, users};
 use crate::errors::handler_disel_error;
 use crate::utils::auth::get_sub;
 use crate::utils::image_file::move_image_to_deleted;
+use chrono::Utc;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use actix_multipart::form::{MultipartForm, tempfile::TempFile, text::Text};
 use diesel::dsl::{insert_into, delete};
@@ -127,6 +128,7 @@ fn db_create_image_with_file(
         product_id,
         note_id,
         user_id: Some(user.id),
+        registerd: Utc::now().naive_utc().date(),
     };
 
     let image = insert_into(product_images::table)

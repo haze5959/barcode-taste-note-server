@@ -43,6 +43,7 @@ diesel::table! {
         product_id -> Nullable<Uuid>,
         note_id -> Nullable<Uuid>,
         user_id -> Nullable<Uuid>,
+        registerd -> Date,
     }
 }
 
@@ -55,6 +56,7 @@ diesel::table! {
         desc -> Nullable<Text>,
         rating -> Nullable<Float4>,
         flavors -> Nullable<Jsonb>,
+        registerd -> Date,
     }
 }
 

@@ -44,7 +44,7 @@ pub struct NoteResponse {
     pub note: Note,
     pub product: Option<Product>,
     pub user: Option<User>,
-    pub images: Vec<Uuid>,
+    pub image_ids: Vec<Uuid>,
 }
 
 // ============================================
@@ -233,7 +233,7 @@ fn db_get_note_by_id(pool: web::Data<Pool>, note_id: Uuid) -> Result<NoteRespons
         note,
         product: Some(product),
         user,
-        images: image_ids,
+        image_ids: image_ids,
     })
 }
 
@@ -294,7 +294,7 @@ fn db_get_notes_list(
             note,
             product,
             user,
-            images: image_ids,
+            image_ids: image_ids,
         });
     }
 
@@ -342,7 +342,7 @@ fn db_get_notes_by_user(
             note,
             product,
             user: None,
-            images: image_ids,
+            image_ids: image_ids,
         });
     }
 

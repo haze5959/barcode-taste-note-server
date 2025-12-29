@@ -31,6 +31,7 @@ async fn main() -> std::io::Result<()> {
             .route("/users", web::get().to(handlers::users_handler::get_users))
             .route("/users/{id}", web::get().to(handlers::users_handler::get_user_by_id))
             // Products
+            .route("/products", web::post().to(handlers::products_handlers::create_product))
             .route("/products", web::get().to(handlers::products_handlers::get_products_list))
             .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id))
             .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode))
@@ -38,6 +39,8 @@ async fn main() -> std::io::Result<()> {
             .route("/notes", web::get().to(handlers::notes_handlers::get_notes_list))
             .route("/notes/{id}", web::get().to(handlers::notes_handlers::get_note_by_id))
             .route("/notes/user/{id}", web::get().to(handlers::notes_handlers::get_notes_by_user))
+            // BTN APP
+            .route("/btn/home", web::get().to(handlers::btn_app_handlers::get_home_info))
             // Authenticated routes
             .service(
                 web::scope("")
@@ -48,7 +51,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/me", web::put().to(handlers::users_handler::update_user_nick))
                     .route("/users/me", web::delete().to(handlers::users_handler::delete_user))
                     // Products
-                    .route("/products", web::post().to(handlers::products_handlers::create_product))
+                    .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list))
                     // Notes
                     .route("/notes", web::post().to(handlers::notes_handlers::create_note))
                     .route("/notes/{id}", web::put().to(handlers::notes_handlers::update_note))

@@ -2,11 +2,13 @@ use crate::Pool;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::ServiceError;
-use crate::models::{CommonResponse, Product, NewProduct, Barcode, NewBarcode};
-use crate::schema::{products, barcodes, product_images, favorites};
 use crate::errors::handler_disel_error;
-use actix_web::{Error, HttpResponse, web};
-use diesel::dsl::{insert_into, count};
+use crate::models::{Barcode, CommonResponse, NewBarcode, NewProduct, Product};
+use crate::schema::{barcodes, favorites, product_images, products, users};
+use crate::utils::auth::get_sub;
+use chrono::Utc;
+use actix_web::{Error, HttpRequest, HttpResponse, web};
+use diesel::dsl::{count, insert_into};
 use diesel::expression_methods::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -31,21 +33,21 @@ pub struct ProductListQuery {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductDetailResponse {
     pub product: Product,
-    pub images: Vec<Uuid>,
+    pub image_ids: Vec<Uuid>,
     pub favorite_count: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductListItem {
     pub product: Product,
-    pub images: Vec<Uuid>,
+    pub image_ids: Vec<Uuid>,
 }
 
 // ============================================
 // MARK: Handler for POST
 // ============================================
 
-/// Path: /products
+/// Path: /products``
 pub async fn create_product(
     db: web::Data<Pool>,
     item: web::Json<CreateProductParams>,
@@ -68,7 +70,8 @@ pub async fn get_product_by_id(
     db: web::Data<Pool>,
     in_product_id: web::Path<Uuid>,
 ) -> Result<HttpResponse, Error> {
-    let product_detail = web::block(move || db_get_product_by_id(db, in_product_id.into_inner())).await??;
+    let product_detail =
+        web::block(move || db_get_product_by_id(db, in_product_id.into_inner())).await??;
     let response = CommonResponse {
         result: true,
         data: product_detail,
@@ -82,7 +85,8 @@ pub async fn get_product_by_barcode(
     db: web::Data<Pool>,
     in_barcode_id: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
-    let product_detail = web::block(move || db_get_product_by_barcode(db, in_barcode_id.into_inner())).await??;
+    let product_detail =
+        web::block(move || db_get_product_by_barcode(db, in_barcode_id.into_inner())).await??;
     let response = CommonResponse {
         result: true,
         data: product_detail,
@@ -97,6 +101,23 @@ pub async fn get_products_list(
     query: web::Query<ProductListQuery>,
 ) -> Result<HttpResponse, Error> {
     let products_list = web::block(move || db_get_products_list(db, query.into_inner())).await??;
+    let data = HashMap::from([("products".to_string(), products_list)]);
+    let response = CommonResponse {
+        result: true,
+        data: data,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /products/favorite
+pub async fn get_favorite_products_list(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    query: web::Query<ProductListQuery>,
+) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+    let products_list = web::block(move || db_get_my_favorite_products_list(db, query.into_inner(), user_sub)).await??;
     let data = HashMap::from([("products".to_string(), products_list)]);
     let response = CommonResponse {
         result: true,
@@ -122,6 +143,7 @@ fn db_create_product(
         name: &item.name,
         desc: item.desc.as_deref(),
         type_: item.type_,
+        registerd: Utc::now().naive_utc().date(),
     };
 
     let product = insert_into(products::table)
@@ -174,7 +196,7 @@ fn db_get_product_by_id(
 
     Ok(ProductDetailResponse {
         product,
-        images: image_ids,
+        image_ids: image_ids,
         favorite_count,
     })
 }
@@ -215,7 +237,7 @@ fn db_get_product_by_barcode(
 
     Ok(ProductDetailResponse {
         product,
-        images: image_ids,
+        image_ids: image_ids,
         favorite_count,
     })
 }
@@ -258,7 +280,68 @@ fn db_get_products_list(
 
         result.push(ProductListItem {
             product,
-            images: image_ids,
+            image_ids: image_ids,
+        });
+    }
+
+    Ok(result)
+}
+
+fn db_get_my_favorite_products_list(
+    pool: web::Data<Pool>,
+    query: ProductListQuery,
+    user_sub: String,
+) -> Result<Vec<ProductListItem>, ServiceError> {
+    let conn = &mut pool.get().unwrap();
+
+    let page = query.page.unwrap_or(1);
+    let per = query.per.unwrap_or(10);
+    let offset = (page - 1) * per;
+
+    // 유저 ID 조회
+    let user_id = users::table
+        .filter(users::sub.eq(&user_sub))
+        .select(users::id)
+        .first::<Uuid>(conn)
+        .map_err(|e| handler_disel_error(e))?;
+
+    let favorite_product_ids: Vec<Uuid> = favorites::table
+        .filter(favorites::user_id.eq(user_id))
+        .select(favorites::product_id)
+        .offset(offset)
+        .limit(per)
+        .load::<Uuid>(conn)
+        .map_err(|e| handler_disel_error(e))?;
+
+    // 제품 리스트 조회
+    let mut products_query = products::table
+        .filter(products::id.eq_any(&favorite_product_ids))
+        .into_boxed();
+
+    // 이름 필터링
+    if let Some(name_filter) = query.name {
+        products_query = products_query.filter(products::name.like(format!("%{}%", name_filter)));
+    }
+
+    let products_list: Vec<Product> = products_query
+        .load::<Product>(conn)
+        .map_err(|e| handler_disel_error(e))?;
+
+    // 각 제품에 대한 이미지 ID들 조회 (최대 3개)
+    let mut result = Vec::new();
+
+    for product in products_list {
+        // 제품 이미지 ID들 조회 (최대 3개)
+        let image_ids: Vec<Uuid> = product_images::table
+            .filter(product_images::product_id.eq(product.id))
+            .select(product_images::id)
+            .limit(3)
+            .load::<Uuid>(conn)
+            .map_err(|e| handler_disel_error(e))?;
+
+        result.push(ProductListItem {
+            product,
+            image_ids: image_ids,
         });
     }
 

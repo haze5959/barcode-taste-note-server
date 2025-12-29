@@ -35,7 +35,8 @@ pub struct Product {
     pub type_: i16,
     pub desc: Option<String>,
     pub rating: Option<f32>,
-    pub flavors: Option<serde_json::Value>
+    pub flavors: Option<serde_json::Value>,
+    pub registerd: chrono::NaiveDate,
 }
 
 #[derive(Insertable, Debug)]
@@ -46,6 +47,7 @@ pub struct NewProduct<'a> {
     #[diesel(column_name = type_)]
     pub type_: i16,
     pub desc: Option<&'a str>,
+    pub registerd: chrono::NaiveDate,
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]
@@ -70,7 +72,8 @@ pub struct ProductImage {
     pub id: Uuid,
     pub product_id: Option<Uuid>,
     pub note_id: Option<Uuid>,
-    pub user_id: Option<Uuid>
+    pub user_id: Option<Uuid>,
+    pub registerd: chrono::NaiveDate,
 }
 
 #[derive(Insertable, Debug)]
@@ -79,7 +82,8 @@ pub struct NewProductImage {
     pub id: Uuid,
     pub product_id: Option<Uuid>,
     pub note_id: Option<Uuid>,
-    pub user_id: Option<Uuid>
+    pub user_id: Option<Uuid>,
+    pub registerd: chrono::NaiveDate,
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]
