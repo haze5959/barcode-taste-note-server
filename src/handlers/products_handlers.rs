@@ -1,7 +1,7 @@
 use crate::Pool;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
-use crate::errors::ServiceError;
+use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
 use crate::models::{Barcode, CommonResponse, NewBarcode, NewProduct, Product};
 use crate::schema::{barcodes, favorites, product_images, products, users};
@@ -134,7 +134,7 @@ pub async fn get_favorite_products_list(
 fn db_create_product(
     pool: web::Data<Pool>,
     item: web::Json<CreateProductParams>,
-) -> Result<Product, ServiceError> {
+) -> Result<Product, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     let new_product_id = Uuid::new_v4();
@@ -171,7 +171,7 @@ fn db_create_product(
 fn db_get_product_by_id(
     pool: web::Data<Pool>,
     in_product_id: Uuid,
-) -> Result<ProductDetailResponse, ServiceError> {
+) -> Result<ProductDetailResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 제품 조회
@@ -204,7 +204,7 @@ fn db_get_product_by_id(
 fn db_get_product_by_barcode(
     pool: web::Data<Pool>,
     barcode_id_str: String,
-) -> Result<ProductDetailResponse, ServiceError> {
+) -> Result<ProductDetailResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 바코드로 제품 ID 찾기
@@ -245,7 +245,7 @@ fn db_get_product_by_barcode(
 fn db_get_products_list(
     pool: web::Data<Pool>,
     query: ProductListQuery,
-) -> Result<Vec<ProductListItem>, ServiceError> {
+) -> Result<Vec<ProductListItem>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     let page = query.page.unwrap_or(1);
@@ -291,7 +291,7 @@ fn db_get_my_favorite_products_list(
     pool: web::Data<Pool>,
     query: ProductListQuery,
     user_sub: String,
-) -> Result<Vec<ProductListItem>, ServiceError> {
+) -> Result<Vec<ProductListItem>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     let page = query.page.unwrap_or(1);

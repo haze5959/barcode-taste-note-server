@@ -1,7 +1,7 @@
 use crate::Pool;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
-use crate::errors::ServiceError;
+use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
 use crate::models::{CommonResponse, NewNote, Note, Product, User};
 use crate::schema::{notes, product_images, products, users};
@@ -169,7 +169,7 @@ fn db_create_note(
     pool: web::Data<Pool>,
     item: web::Json<CreateNoteParams>,
     user_sub: String,
-) -> Result<Note, ServiceError> {
+) -> Result<Note, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
@@ -205,7 +205,7 @@ fn db_create_note(
     Ok(note)
 }
 
-fn db_get_note_by_id(pool: web::Data<Pool>, note_id: Uuid) -> Result<NoteResponse, ServiceError> {
+fn db_get_note_by_id(pool: web::Data<Pool>, note_id: Uuid) -> Result<NoteResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 노트 조회
@@ -240,7 +240,7 @@ fn db_get_note_by_id(pool: web::Data<Pool>, note_id: Uuid) -> Result<NoteRespons
 fn db_get_notes_list(
     pool: web::Data<Pool>,
     query: NoteListQuery,
-) -> Result<Vec<NoteResponse>, ServiceError> {
+) -> Result<Vec<NoteResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     let page = query.page.unwrap_or(1);
@@ -305,7 +305,7 @@ fn db_get_notes_by_user(
     pool: web::Data<Pool>,
     user_id: Uuid,
     query: NoteListQuery,
-) -> Result<Vec<NoteResponse>, ServiceError> {
+) -> Result<Vec<NoteResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     let page = query.page.unwrap_or(1);
@@ -354,7 +354,7 @@ fn db_update_note(
     note_id: Uuid,
     item: web::Json<UpdateNoteParams>,
     user_sub: String,
-) -> Result<Note, ServiceError> {
+) -> Result<Note, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
@@ -370,7 +370,7 @@ fn db_update_note(
         .map_err(|e| handler_disel_error(e))?;
 
     if note.user_id != user.id {
-        return Err(ServiceError::BadRequest("Not authorized".to_string()));
+        return Err(CommonResponseError::AuthValidationFail);
     }
 
     // 노트 업데이트
@@ -429,7 +429,7 @@ fn db_delete_note(
     pool: web::Data<Pool>,
     note_id: Uuid,
     user_sub: String,
-) -> Result<bool, ServiceError> {
+) -> Result<bool, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
@@ -445,7 +445,7 @@ fn db_delete_note(
         .map_err(|e| handler_disel_error(e))?;
 
     if note.user_id != user.id {
-        return Err(ServiceError::BadRequest("Not authorized".to_string()));
+        return Err(CommonResponseError::AuthValidationFail);
     }
 
     let image_ids: Vec<Uuid> = product_images::table

@@ -2,7 +2,7 @@ use crate::Pool;
 use crate::constants::IMAGE_DIR;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
-use crate::errors::ServiceError;
+use crate::errors::CommonResponseError;
 use crate::models::{CommonResponse, ProductImage, NewProductImage, User};
 use crate::schema::{product_images, users};
 use crate::errors::handler_disel_error;
@@ -113,7 +113,7 @@ fn db_create_image_with_file(
     note_id: Option<Uuid>,
     user_sub: String,
     image_bytes: Vec<u8>,
-) -> Result<ProductImage, ServiceError> {
+) -> Result<ProductImage, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
@@ -139,19 +139,19 @@ fn db_create_image_with_file(
     // 이미지 폴더 생성 (없으면)
     std::fs::create_dir_all(IMAGE_DIR).map_err(|e| {
         eprintln!("Failed to create image directory: {}", e);
-        ServiceError::InternalServerError
+        CommonResponseError::InternalServerError
     })?;
 
     // 이미지 파일 저장
     let file_path = format!("{}/{}.jpeg", IMAGE_DIR, new_image_id);
     let mut file: std::fs::File = std::fs::File::create(&file_path).map_err(|e| {
         eprintln!("Failed to create image file: {}", e);
-        ServiceError::InternalServerError
+        CommonResponseError::InternalServerError
     })?;
 
     file.write_all(&image_bytes).map_err(|e| {
         eprintln!("Failed to write image file: {}", e);
-        ServiceError::InternalServerError
+        CommonResponseError::InternalServerError
     })?;
 
     Ok(image)
@@ -161,7 +161,7 @@ fn db_delete_image(
     pool: web::Data<Pool>,
     image_id: Uuid,
     user_sub: String,
-) -> Result<bool, ServiceError> {
+) -> Result<bool, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
@@ -177,7 +177,7 @@ fn db_delete_image(
         .map_err(|e| handler_disel_error(e))?;
 
     if image.user_id != Some(user.id) {
-        return Err(ServiceError::BadRequest("Not authorized".to_string()));
+        return Err(CommonResponseError::AuthValidationFail);
     }
 
     // DB에서 이미지 삭제

@@ -2,7 +2,7 @@ use crate::Pool;
 use crate::constants::HOME_INFO_LENGTH;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
-use crate::errors::ServiceError;
+use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
 use crate::models::{CommonResponse, User, Product, Note};
 use crate::schema::{product_images, users, products, notes};
@@ -53,7 +53,7 @@ pub async fn get_home_info(db: web::Data<Pool>) -> Result<HttpResponse, Error> {
 // MARK: Internal Methods
 // ============================================
 
-fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, ServiceError> {
+fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 제품 리스트 조회
@@ -84,7 +84,7 @@ fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, S
     Ok(result)
 }
 
-fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, ServiceError> {
+fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 노트 리스트 조회

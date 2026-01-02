@@ -2,11 +2,12 @@ use crate::Pool;
 use crate::constants::DEFAULT_NICK;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
-use crate::errors::ServiceError;
+use crate::errors::CommonResponseError;
 use crate::models::{CommonResponse, NewUser, User};
 use crate::schema::users::dsl::*;
 use crate::utils::auth::get_sub;
 use crate::errors::handler_disel_error;
+use actix_web::ResponseError;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use diesel::dsl::{delete, exists, insert_into, select};
 use diesel::expression_methods::*;
@@ -127,7 +128,7 @@ pub async fn delete_user(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpRe
 // ============================================
 // MARK: Internal Methods
 // ============================================
-fn get_all_users(pool: web::Data<Pool>) -> Result<Vec<User>, ServiceError> {
+fn get_all_users(pool: web::Data<Pool>) -> Result<Vec<User>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let items = users
         .load::<User>(conn)
@@ -135,7 +136,7 @@ fn get_all_users(pool: web::Data<Pool>) -> Result<Vec<User>, ServiceError> {
     Ok(items)
 }
 
-fn get_users_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<User, ServiceError> {
+fn get_users_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<User, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let items = users
         .filter(sub.eq(user_sub))
@@ -144,7 +145,7 @@ fn get_users_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<User, Ser
     Ok(items)
 }
 
-fn db_get_user_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<User, ServiceError> {
+fn db_get_user_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<User, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let items = users
         .find(user_id)
@@ -157,7 +158,7 @@ fn add_single_user(
     pool: web::Data<Pool>,
     item: web::Json<AddUserParams>,
     user_sub: &str,
-) -> Result<User, ServiceError> {
+) -> Result<User, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let nick: String = item.nick_name.as_deref().map_or_else(
         || {
@@ -180,7 +181,7 @@ fn add_single_user(
     .map_err(|e| handler_disel_error(e))?;
 
     if is_duplicate {
-        return Err(ServiceError::DuplicatedError);
+        return Err(CommonResponseError::DuplicatedError);
     }
 
     // 유저 추가
@@ -201,7 +202,7 @@ fn update_single_user_nick(
     db: web::Data<Pool>,
     item: web::Json<SetUserNameParams>,
     user_sub: &str,
-) -> Result<User, ServiceError> {
+) -> Result<User, CommonResponseError> {
     let conn = &mut db.get().unwrap();
     let res = diesel::update(users.filter(sub.eq(user_sub)))
         .set(nick_name.eq(item.nick_name.as_str()))
@@ -210,7 +211,7 @@ fn update_single_user_nick(
     Ok(res)
 }
 
-fn delete_single_user(db: web::Data<Pool>, user_sub: &str) -> Result<bool, ServiceError> {
+fn delete_single_user(db: web::Data<Pool>, user_sub: &str) -> Result<bool, CommonResponseError> {
     let conn = &mut db.get().unwrap();
     let count = delete(users.filter(sub.eq(user_sub)))
         .execute(conn)
