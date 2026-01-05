@@ -1,7 +1,0 @@
-{
-    "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
-    "rust-analyzer.server.extraEnv": {
-      "CARGO": "/Users/oq/.cargo/bin/cargo",
-      "RUSTC": "/Users/oq/.cargo/bin/rustc",
-    },
-}

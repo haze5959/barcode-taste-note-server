@@ -2,69 +2,45 @@ use crate::models::CommonResponse;
 use actix_web::{HttpResponse, error::ResponseError};
 use derive_more::Display;
 use diesel::result::Error::{self, NotFound};
+use diesel::result::Error as DieselError;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Display, Serialize)]
-pub enum ServiceError {
-    #[display(fmt = "Internal Server Error")]
-    InternalServerError,
-
-    #[display(fmt = "Internal DB Error")]
-    InternalDBError,
-
-    #[display(fmt = "BadRequest: {}", _0)]
-    BadRequest(String),
-
-    #[display(fmt = "Duplicated Error")]
-    DuplicatedError,
-
-    #[display(fmt = "JWKSFetchError")]
-    JWKSFetchError,
-
-    #[display(fmt = "ResponseError: {}", _0)]
-    ResponseError(CommonResponseError),
-}
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize)]
 pub enum CommonResponseError {
-    RecordNotFound = 100,
+    InternalServerError = 100,
+    InternalDBError= 101,
+    AuthValidationFail= 102,
+    DuplicatedError= 103,
+    JWKSFetchError= 104,
+    RecordNotFound = 105,
+    Unknown = 255
 }
 
-// impl ResponseError trait allows to convert our errors into http responses with appropriate data
-impl ResponseError for ServiceError {
+impl ResponseError for CommonResponseError {
     fn error_response(&self) -> HttpResponse {
-        match self {
-            ServiceError::InternalServerError => {
-                HttpResponse::InternalServerError().json("Internal Server Error, Please try later")
-            }
-            ServiceError::InternalDBError => {
-                HttpResponse::InternalServerError().json("Internal DB Error, Please try later")
-            }
-            ServiceError::BadRequest(message) => HttpResponse::BadRequest().json(message),
-            ServiceError::DuplicatedError => HttpResponse::InternalServerError().json("Duplicated"),
-            ServiceError::ResponseError(error) => {
-                let response: CommonResponse<Option<()>> = CommonResponse {
-                    result: false,
-                    data: None,
-                    error: Some(*error as u8),
-                };
+        let response: CommonResponse<Option<()>> = CommonResponse {
+            result: false,
+            data: None,
+            error: Some(*self as u8),
+        };
 
-                return HttpResponse::Ok().json(response);
-            }
-            ServiceError::JWKSFetchError => {
-                HttpResponse::InternalServerError().json("Could not fetch JWKS")
-            }
-        }
+        return HttpResponse::Ok().json(response);
     }
 }
 
-pub fn handler_disel_error(error: Error) -> ServiceError {
+pub fn handler_disel_error(error: Error) -> CommonResponseError {
     return match error {
-        NotFound => ServiceError::ResponseError(CommonResponseError::RecordNotFound),
+        NotFound => CommonResponseError::RecordNotFound,
         _ => {
             eprintln!("[DB Error] {}", error.to_string());
-            ServiceError::InternalDBError
+            CommonResponseError::InternalDBError
         }
     };
+}
+
+impl From<DieselError> for CommonResponseError {
+    fn from(error: DieselError) -> Self {
+        handler_disel_error(error)
+    }
 }
