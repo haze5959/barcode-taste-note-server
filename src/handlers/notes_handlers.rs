@@ -11,6 +11,7 @@ use actix_web::{Error, HttpRequest, HttpResponse, web};
 use chrono::Utc;
 use diesel::dsl::{delete, insert_into};
 use diesel::expression_methods::*;
+use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -176,7 +177,7 @@ fn db_create_note(
     let user = users::table
         .filter(users::sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     let new_note_id = Uuid::new_v4();
     let new_note = NewNote {
@@ -184,24 +185,25 @@ fn db_create_note(
         user_id: user.id,
         product_id: item.product_id,
         body: item.body.clone(),
-        registerd: Utc::now().naive_utc().date(),
+        registered: Utc::now(),
         rating: item.rating,
         public_scope: item.public_scope,
     };
 
-    let note = insert_into(notes::table)
+    let note = conn.transaction::<Note, CommonResponseError, _>(|conn| {
+        let note = insert_into(notes::table)
         .values(&new_note)
-        .get_result::<Note>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .get_result::<Note>(conn)?;
 
     // 이미지들을 노트에 연결
     for image_id in &item.image_ids {
         diesel::update(product_images::table.find(image_id))
             .set(product_images::note_id.eq(new_note_id))
-            .execute(conn)
-            .map_err(|e| handler_disel_error(e))?;
+            .execute(conn)?;
     }
 
+        Ok(note)
+    })?;
     Ok(note)
 }
 
@@ -212,12 +214,12 @@ fn db_get_note_by_id(pool: web::Data<Pool>, note_id: Uuid) -> Result<NoteRespons
     let note = notes::table
         .find(note_id)
         .first::<Note>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     let product = products::table
         .find(note.product_id)
         .first::<Product>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 유저 조회 (public_scope에 따라 옵셔널)
     let user = users::table.find(note.user_id).first::<User>(conn).ok();
@@ -227,7 +229,7 @@ fn db_get_note_by_id(pool: web::Data<Pool>, note_id: Uuid) -> Result<NoteRespons
         .filter(product_images::note_id.eq(note_id))
         .select(product_images::id)
         .load::<Uuid>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     Ok(NoteResponse {
         note,
@@ -256,11 +258,11 @@ fn db_get_notes_list(
     }
 
     let notes_list: Vec<Note> = notes_query
-        .order(notes::registerd.desc())
+        .order(notes::registered.desc())
         .offset(offset)
         .limit(per)
         .load::<Note>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 각 노트에 대한 상세 정보 조회
     let mut result = Vec::new();
@@ -288,7 +290,7 @@ fn db_get_notes_list(
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)
-            .map_err(|e| handler_disel_error(e))?;
+            .map_err(handler_disel_error)?;
 
         result.push(NoteResponse {
             note,
@@ -315,11 +317,11 @@ fn db_get_notes_by_user(
     // 특정 유저의 노트 리스트 조회
     let notes_list: Vec<Note> = notes::table
         .filter(notes::user_id.eq(user_id))
-        .order(notes::registerd.desc())
+        .order(notes::registered.desc())
         .offset(offset)
         .limit(per)
         .load::<Note>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 각 노트에 대한 상세 정보 조회
     let mut result = Vec::new();
@@ -336,7 +338,7 @@ fn db_get_notes_by_user(
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)
-            .map_err(|e| handler_disel_error(e))?;
+            .map_err(handler_disel_error)?;
 
         result.push(NoteResponse {
             note,
@@ -361,34 +363,24 @@ fn db_update_note(
     let user = users::table
         .filter(users::sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 노트 소유자 확인
     let note = notes::table
         .find(note_id)
         .first::<Note>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     if note.user_id != user.id {
         return Err(CommonResponseError::AuthValidationFail);
     }
-
-    // 노트 업데이트
-    let updated_note = diesel::update(notes::table.find(note_id))
-        .set((
-            notes::body.eq(&item.body),
-            notes::rating.eq(item.rating),
-            notes::public_scope.eq(item.public_scope),
-        ))
-        .get_result::<Note>(conn)
-        .map_err(|e| handler_disel_error(e))?;
 
     // 현재 노트에 연결된 이미지 ID들 조회
     let current_image_ids: Vec<Uuid> = product_images::table
         .filter(product_images::note_id.eq(note_id))
         .select(product_images::id)
         .load::<Uuid>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 제거할 이미지들 (현재 있지만 새 리스트에 없음)
     let images_to_remove: Vec<Uuid> = current_image_ids
@@ -404,23 +396,34 @@ fn db_update_note(
         .cloned()
         .collect();
 
-    // 제거: product_images의 row 제거
-    for image_id in images_to_remove {
-        // 이미지 파일을 deleted 폴더로 이동
-        let _file_delete_result = move_image_to_deleted(image_id);
-        // DB에서 이미지 삭제
-        delete(product_images::table.find(image_id))
-        .execute(conn)
-        .map_err(|e| handler_disel_error(e))?;
-    }
+    let updated_note = conn.transaction::<Note, CommonResponseError, _>(|conn| {
+        // 노트 업데이트
+        let updated_note = diesel::update(notes::table.find(note_id))
+            .set((
+                notes::body.eq(&item.body),
+                notes::rating.eq(item.rating),
+                notes::public_scope.eq(item.public_scope),
+            ))
+            .get_result::<Note>(conn)?;
 
-    // 추가: note_id를 현재 노트로 설정
-    for image_id in images_to_add {
-        diesel::update(product_images::table.find(image_id))
-            .set(product_images::note_id.eq(note_id))
-            .execute(conn)
-            .map_err(|e| handler_disel_error(e))?;
-    }
+        // 제거: product_images의 row 제거
+        for image_id in images_to_remove {
+            // 이미지 파일을 deleted 폴더로 이동
+            let _file_delete_result = move_image_to_deleted(image_id);
+            // DB에서 이미지 삭제
+            delete(product_images::table.find(image_id))
+            .execute(conn)?;
+        }
+
+        // 추가: note_id를 현재 노트로 설정
+        for image_id in images_to_add {
+            diesel::update(product_images::table.find(image_id))
+                .set(product_images::note_id.eq(note_id))
+                .execute(conn)?;
+        }
+
+        Ok(updated_note)
+    })?;
 
     Ok(updated_note)
 }
@@ -436,13 +439,13 @@ fn db_delete_note(
     let user = users::table
         .filter(users::sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 노트 소유자 확인
     let note = notes::table
         .find(note_id)
         .first::<Note>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     if note.user_id != user.id {
         return Err(CommonResponseError::AuthValidationFail);
@@ -452,7 +455,7 @@ fn db_delete_note(
         .filter(product_images::note_id.eq(note_id))
         .select(product_images::id)
         .load::<Uuid>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     for image_id in image_ids {
         // 이미지 파일을 deleted 폴더로 이동
@@ -462,7 +465,7 @@ fn db_delete_note(
     // 노트 삭제
     let count = delete(notes::table.find(note_id))
         .execute(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     Ok(count == 1)
 }

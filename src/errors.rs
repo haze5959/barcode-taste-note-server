@@ -2,6 +2,7 @@ use crate::models::CommonResponse;
 use actix_web::{HttpResponse, error::ResponseError};
 use derive_more::Display;
 use diesel::result::Error::{self, NotFound};
+use diesel::result::Error as DieselError;
 use serde::{Deserialize, Serialize};
 
 #[repr(u8)]
@@ -36,4 +37,10 @@ pub fn handler_disel_error(error: Error) -> CommonResponseError {
             CommonResponseError::InternalDBError
         }
     };
+}
+
+impl From<DieselError> for CommonResponseError {
+    fn from(error: DieselError) -> Self {
+        handler_disel_error(error)
+    }
 }

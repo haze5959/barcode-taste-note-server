@@ -7,7 +7,6 @@ use crate::models::{CommonResponse, NewUser, User};
 use crate::schema::users::dsl::*;
 use crate::utils::auth::get_sub;
 use crate::errors::handler_disel_error;
-use actix_web::ResponseError;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use diesel::dsl::{delete, exists, insert_into, select};
 use diesel::expression_methods::*;
@@ -132,7 +131,7 @@ fn get_all_users(pool: web::Data<Pool>) -> Result<Vec<User>, CommonResponseError
     let conn = &mut pool.get().unwrap();
     let items = users
         .load::<User>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
     Ok(items)
 }
 
@@ -141,7 +140,7 @@ fn get_users_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<User, Com
     let items = users
         .filter(sub.eq(user_sub))
         .first::<User>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
     Ok(items)
 }
 
@@ -150,7 +149,7 @@ fn db_get_user_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<User, Commo
     let items = users
         .find(user_id)
         .get_result::<User>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
     Ok(items)
 }
 
@@ -160,16 +159,15 @@ fn add_single_user(
     user_sub: &str,
 ) -> Result<User, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    let nick: String = item.nick_name.as_deref().map_or_else(
-        || {
-            let user_count = users
-                .count()
-                .get_result::<i64>(conn)
-                .map_err(|e| handler_disel_error(e))?;
-            Ok(format!("{DEFAULT_NICK}{user_count}"))
-        },
-        |n| Ok(n.to_string()),
-    )?;
+    let nick: String = if let Some(n) = item.nick_name.as_deref() {
+        n.to_string()
+    } else {
+        let user_count = users
+            .count()
+            .get_result::<i64>(conn)
+            .map_err(handler_disel_error)?;
+        format!("{DEFAULT_NICK}{user_count}")
+    };
 
     // nick, sub 중복 체크
     let is_duplicate = select(exists(
@@ -178,7 +176,7 @@ fn add_single_user(
             .or_filter(sub.eq(user_sub)),
     ))
     .get_result(conn)
-    .map_err(|e| handler_disel_error(e))?;
+    .map_err(handler_disel_error)?;
 
     if is_duplicate {
         return Err(CommonResponseError::DuplicatedError);
@@ -194,7 +192,7 @@ fn add_single_user(
     let res = insert_into(users)
         .values(&new_user)
         .get_result(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
     Ok(res)
 }
 
@@ -207,7 +205,7 @@ fn update_single_user_nick(
     let res = diesel::update(users.filter(sub.eq(user_sub)))
         .set(nick_name.eq(item.nick_name.as_str()))
         .get_result::<User>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
     Ok(res)
 }
 
@@ -215,6 +213,6 @@ fn delete_single_user(db: web::Data<Pool>, user_sub: &str) -> Result<bool, Commo
     let conn = &mut db.get().unwrap();
     let count = delete(users.filter(sub.eq(user_sub)))
         .execute(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
     Ok(count == 1)
 }

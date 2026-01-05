@@ -10,6 +10,7 @@ use chrono::Utc;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use diesel::dsl::{count, insert_into};
 use diesel::expression_methods::*;
+use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -143,27 +144,30 @@ fn db_create_product(
         name: &item.name,
         desc: item.desc.as_deref(),
         type_: item.type_,
-        registerd: Utc::now().naive_utc().date(),
+        registered: Utc::now(),
     };
 
-    let product = insert_into(products::table)
-        .values(&new_product)
-        .get_result::<Product>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+    let product = conn.transaction::<Product, CommonResponseError, _>(|conn| {
+        // product insert
+        let product = insert_into(products::table)
+            .values(&new_product)
+            .get_result::<Product>(conn)?;
 
-    // barcode_id가 제공된 경우 바코드 생성
-    if let Some(ref barcode_str) = item.barcode_id {
-        let new_barcode = NewBarcode {
-            id: Uuid::new_v4(),
-            barcode_id: barcode_str,
-            product_id: new_product_id,
-        };
+        // barcode_id가 제공된 경우 바코드 생성
+        if let Some(ref barcode_str) = item.barcode_id {
+            let new_barcode = NewBarcode {
+                id: Uuid::new_v4(),
+                barcode_id: barcode_str,
+                product_id: new_product_id,
+            };
 
-        insert_into(barcodes::table)
-            .values(&new_barcode)
-            .execute(conn)
-            .map_err(|e| handler_disel_error(e))?;
-    }
+            insert_into(barcodes::table)
+                .values(&new_barcode)
+                .execute(conn)?;
+        }
+
+        Ok(product)
+    })?;
 
     Ok(product)
 }
@@ -178,21 +182,21 @@ fn db_get_product_by_id(
     let product = products::table
         .find(in_product_id)
         .first::<Product>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 제품 이미지 ID들 조회
     let image_ids: Vec<Uuid> = product_images::table
         .filter(product_images::product_id.eq(in_product_id))
         .select(product_images::id)
         .load::<Uuid>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 좋아요 수 조회
     let favorite_count: i64 = favorites::table
         .filter(favorites::product_id.eq(in_product_id))
         .select(count(favorites::id))
         .first(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     Ok(ProductDetailResponse {
         product,
@@ -211,7 +215,7 @@ fn db_get_product_by_barcode(
     let barcode = barcodes::table
         .filter(barcodes::barcode_id.eq(barcode_id_str))
         .first::<Barcode>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     let product_id = barcode.product_id;
 
@@ -219,21 +223,21 @@ fn db_get_product_by_barcode(
     let product = products::table
         .find(product_id)
         .first::<Product>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 제품 이미지 ID들 조회
     let image_ids: Vec<Uuid> = product_images::table
         .filter(product_images::product_id.eq(product_id))
         .select(product_images::id)
         .load::<Uuid>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 좋아요 수 조회
     let favorite_count: i64 = favorites::table
         .filter(favorites::product_id.eq(product_id))
         .select(count(favorites::id))
         .first(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     Ok(ProductDetailResponse {
         product,
@@ -264,7 +268,7 @@ fn db_get_products_list(
         .offset(offset)
         .limit(per)
         .load::<Product>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 각 제품에 대한 이미지 ID들 조회 (최대 3개)
     let mut result = Vec::new();
@@ -276,7 +280,7 @@ fn db_get_products_list(
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)
-            .map_err(|e| handler_disel_error(e))?;
+            .map_err(handler_disel_error)?;
 
         result.push(ProductListItem {
             product,
@@ -303,7 +307,7 @@ fn db_get_my_favorite_products_list(
         .filter(users::sub.eq(&user_sub))
         .select(users::id)
         .first::<Uuid>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     let favorite_product_ids: Vec<Uuid> = favorites::table
         .filter(favorites::user_id.eq(user_id))
@@ -311,7 +315,7 @@ fn db_get_my_favorite_products_list(
         .offset(offset)
         .limit(per)
         .load::<Uuid>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 제품 리스트 조회
     let mut products_query = products::table
@@ -325,7 +329,7 @@ fn db_get_my_favorite_products_list(
 
     let products_list: Vec<Product> = products_query
         .load::<Product>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 각 제품에 대한 이미지 ID들 조회 (최대 3개)
     let mut result = Vec::new();
@@ -337,7 +341,7 @@ fn db_get_my_favorite_products_list(
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)
-            .map_err(|e| handler_disel_error(e))?;
+            .map_err(handler_disel_error)?;
 
         result.push(ProductListItem {
             product,

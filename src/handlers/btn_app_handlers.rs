@@ -58,10 +58,10 @@ fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, C
 
     // 제품 리스트 조회
     let products_list: Vec<Product> = products::table
-        .order(products::registerd.desc())
+        .order(products::registered.desc())
         .limit(HOME_INFO_LENGTH)
         .load::<Product>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 각 제품에 대한 이미지 ID들 조회 (최대 3개)
     let mut result = Vec::new();
@@ -73,7 +73,7 @@ fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, C
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)
-            .map_err(|e| handler_disel_error(e))?;
+            .map_err(handler_disel_error)?;
 
         result.push(ProductListItem {
             product,
@@ -89,11 +89,11 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
 
     // 노트 리스트 조회
     let notes_list: Vec<Note> = notes::table
-        .order(notes::registerd.desc())
+        .order(notes::registered.desc())
         // .filter(notes::public_scope.eq(1))
         .limit(HOME_INFO_LENGTH)
         .load::<Note>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 각 노트에 대한 상세 정보 조회
     let mut result = Vec::new();
@@ -113,7 +113,7 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)
-            .map_err(|e| handler_disel_error(e))?;
+            .map_err(handler_disel_error)?;
 
         result.push(NoteResponse {
             note,

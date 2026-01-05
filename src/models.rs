@@ -1,5 +1,6 @@
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
+use chrono::{DateTime, Utc};
 use crate::schema::*;
 
 // 공통
@@ -36,7 +37,7 @@ pub struct Product {
     pub desc: Option<String>,
     pub rating: Option<f32>,
     pub flavors: Option<serde_json::Value>,
-    pub registerd: chrono::NaiveDate,
+    pub registered: DateTime<Utc>,
 }
 
 #[derive(Insertable, Debug)]
@@ -47,7 +48,7 @@ pub struct NewProduct<'a> {
     #[diesel(column_name = type_)]
     pub type_: i16,
     pub desc: Option<&'a str>,
-    pub registerd: chrono::NaiveDate,
+    pub registered: DateTime<Utc>,
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]
@@ -73,7 +74,7 @@ pub struct ProductImage {
     pub product_id: Option<Uuid>,
     pub note_id: Option<Uuid>,
     pub user_id: Option<Uuid>,
-    pub registerd: chrono::NaiveDate,
+    pub registered: DateTime<Utc>,
 }
 
 #[derive(Insertable, Debug)]
@@ -83,7 +84,7 @@ pub struct NewProductImage {
     pub product_id: Option<Uuid>,
     pub note_id: Option<Uuid>,
     pub user_id: Option<Uuid>,
-    pub registerd: chrono::NaiveDate,
+    pub registered: DateTime<Utc>,
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]
@@ -93,7 +94,7 @@ pub struct Note {
     pub user_id: Uuid,
     pub product_id: Uuid,
     pub body: Option<String>,
-    pub registerd: chrono::NaiveDate,
+    pub registered: DateTime<Utc>,
     pub rating: i16,
     pub public_scope: i16
 }
@@ -105,7 +106,7 @@ pub struct NewNote {
     pub user_id: Uuid,
     pub product_id: Uuid,
     pub body: Option<String>,
-    pub registerd: chrono::NaiveDate,
+    pub registered: DateTime<Utc>,
     pub rating: i16,
     pub public_scope: i16
 }

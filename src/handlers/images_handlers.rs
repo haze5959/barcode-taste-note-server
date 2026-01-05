@@ -120,7 +120,7 @@ fn db_create_image_with_file(
     let user = users::table
         .filter(users::sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     let new_image_id = Uuid::new_v4();
     let new_image = NewProductImage {
@@ -128,13 +128,13 @@ fn db_create_image_with_file(
         product_id,
         note_id,
         user_id: Some(user.id),
-        registerd: Utc::now().naive_utc().date(),
+        registered: Utc::now(),
     };
 
     let image = insert_into(product_images::table)
         .values(&new_image)
         .get_result::<ProductImage>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 이미지 폴더 생성 (없으면)
     std::fs::create_dir_all(IMAGE_DIR).map_err(|e| {
@@ -168,13 +168,13 @@ fn db_delete_image(
     let user = users::table
         .filter(users::sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     // 이미지 소유자 확인
     let image = product_images::table
         .find(image_id)
         .first::<ProductImage>(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     if image.user_id != Some(user.id) {
         return Err(CommonResponseError::AuthValidationFail);
@@ -183,7 +183,7 @@ fn db_delete_image(
     // DB에서 이미지 삭제
     let count = delete(product_images::table.find(image_id))
         .execute(conn)
-        .map_err(|e| handler_disel_error(e))?;
+        .map_err(handler_disel_error)?;
 
     Ok(count == 1)
 }
