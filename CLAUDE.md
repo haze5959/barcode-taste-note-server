@@ -5,7 +5,7 @@
 
 ## Tech Stack
 - rust [Actix](https://actix.rs/)
-- 인증: Auth0
+- 인증: Auth0 [예제](https://auth0.com/blog/build-an-api-in-rust-with-jwt-authentication-using-actix-web/)
 - ORM: [Diesel](https://github.com/diesel-rs/diesel)
     - [예제](https://github.com/actix/examples/tree/master/databases/diesel)
 - DB postgreSQL

@@ -36,28 +36,62 @@ pub async fn validator(
 }
 
 fn validate_token(token: &str) -> Result<Claims, CommonResponseError> {
+    debug!("===== Token Validation Started =====");
     let authority = std::env::var("AUTHORITY").expect("AUTHORITY must be set");
     let audience = std::env::var("AUDIENCE").expect("AUDIENCE must be set");
+    
     let jwks = fetch_jwks(&format!(
         "{}{}",
         authority.as_str(),
         ".well-known/jwks.json"
     ))
     .expect("failed to fetch jwks");
+    
     let validations = vec![
-        Validation::Issuer(authority),
+        Validation::Issuer(authority.clone()),
         Validation::Audience(audience),
     ];
-    // token에서 kid를 빼오지 못함 알콜홀릭 라이브러리가 이상한듯
-    let kid = token_kid(token)
-        .map_err(|_| CommonResponseError::JWKSFetchError)?
-        .ok_or(CommonResponseError::AuthValidationFail)?;
+    
+    let kid = match token_kid(token) {
+        Ok(Some(k)) => {
+            debug!("✓ Kid extracted successfully: {}", k);
+            k
+        },
+        Ok(None) => {
+            error!("✗ Token does not contain 'kid' field in header");
+            error!("This usually means the JWT header is missing the 'kid' field");
+            return Err(CommonResponseError::AuthValidationFail);
+        },
+        Err(e) => {
+            error!("✗ Failed to parse token header: {:?}", e);
+            error!("This could mean: 1) Invalid JWT format, 2) Invalid Base64 encoding, 3) Malformed header");
+            return Err(CommonResponseError::JWKSFetchError);
+        }
+    };
+    
     let jwk = jwks
         .find(&kid)
-        .ok_or(CommonResponseError::AuthValidationFail)?;
-    let res = validate(token, jwk, validations);
-    let claims: Claims = serde_json::from_value(res.unwrap().claims).unwrap();
+        .ok_or_else(|| {
+            error!("✗ JWK not found for kid: {}", kid);
+            CommonResponseError::AuthValidationFail
+        })?;
+    
+    let res = validate(token, jwk, validations)
+        .map_err(|e| {
+            error!("✗ Token validation failed: {:?}", e);
+            CommonResponseError::AuthValidationFail
+        })?;
+    
+    debug!("✓ Token validated successfully");
+    
+    let claims: Claims = serde_json::from_value(res.claims)
+        .map_err(|e| {
+            error!("✗ Failed to parse claims: {:?}", e);
+            CommonResponseError::AuthValidationFail
+        })?;
 
+    debug!("✓ Claims parsed successfully");
+    debug!("===== Token Validation Ended =====");
     Ok(claims)
 }
 

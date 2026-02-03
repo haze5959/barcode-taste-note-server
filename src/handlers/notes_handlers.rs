@@ -9,9 +9,9 @@ use crate::utils::auth::get_sub;
 use crate::utils::image_file::move_image_to_deleted;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use chrono::Utc;
+use diesel::Connection;
 use diesel::dsl::{delete, insert_into};
 use diesel::expression_methods::*;
-use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -192,22 +192,25 @@ fn db_create_note(
 
     let note = conn.transaction::<Note, CommonResponseError, _>(|conn| {
         let note = insert_into(notes::table)
-        .values(&new_note)
-        .get_result::<Note>(conn)?;
+            .values(&new_note)
+            .get_result::<Note>(conn)?;
 
-    // 이미지들을 노트에 연결
-    for image_id in &item.image_ids {
-        diesel::update(product_images::table.find(image_id))
-            .set(product_images::note_id.eq(new_note_id))
-            .execute(conn)?;
-    }
+        // 이미지들을 노트에 연결
+        for image_id in &item.image_ids {
+            diesel::update(product_images::table.find(image_id))
+                .set(product_images::note_id.eq(new_note_id))
+                .execute(conn)?;
+        }
 
         Ok(note)
     })?;
     Ok(note)
 }
 
-fn db_get_note_by_id(pool: web::Data<Pool>, note_id: Uuid) -> Result<NoteResponse, CommonResponseError> {
+fn db_get_note_by_id(
+    pool: web::Data<Pool>,
+    note_id: Uuid,
+) -> Result<NoteResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 노트 조회
@@ -272,11 +275,11 @@ fn db_get_notes_list(
             None
         } else {
             products::table
-            .find(note.product_id)
-            .first::<Product>(conn)
-            .ok()
+                .find(note.product_id)
+                .first::<Product>(conn)
+                .ok()
         };
-         
+
         // 유저 조회
         let user = if note.public_scope == 0 {
             None
@@ -390,7 +393,8 @@ fn db_update_note(
         .collect();
 
     // 추가할 이미지들 (새 리스트에 있지만 현재 없음)
-    let images_to_add: Vec<Uuid> = item.image_ids
+    let images_to_add: Vec<Uuid> = item
+        .image_ids
         .iter()
         .filter(|id| !current_image_ids.contains(id))
         .cloned()
@@ -411,8 +415,7 @@ fn db_update_note(
             // 이미지 파일을 deleted 폴더로 이동
             let _file_delete_result = move_image_to_deleted(image_id);
             // DB에서 이미지 삭제
-            delete(product_images::table.find(image_id))
-            .execute(conn)?;
+            delete(product_images::table.find(image_id)).execute(conn)?;
         }
 
         // 추가: note_id를 현재 노트로 설정
