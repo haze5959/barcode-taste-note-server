@@ -10,6 +10,7 @@ use crate::errors::handler_disel_error;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use diesel::dsl::{delete, exists, insert_into, select};
 use diesel::expression_methods::*;
+use diesel::PgConnection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::vec::Vec;
@@ -159,7 +160,15 @@ fn add_single_user(
     user_sub: &str,
 ) -> Result<User, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    let nick: String = if let Some(n) = item.nick_name.as_deref() {
+    register_user(conn, item.nick_name.clone(), user_sub)
+}
+
+pub(crate) fn register_user(
+    conn: &mut PgConnection,
+    provided_nick_name: Option<String>,
+    user_sub: &str,
+) -> Result<User, CommonResponseError> {
+    let nick: String = if let Some(n) = provided_nick_name.as_deref() {
         n.to_string()
     } else {
         let user_count = users

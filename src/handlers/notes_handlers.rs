@@ -3,11 +3,13 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{CommonResponse, NewNote, Note, Product, User};
-use crate::schema::{notes, product_images, products, users};
+use crate::models::{CommonResponse, NewNote, Note, Product, User, NewFlavorTag};
+use crate::schema::{notes, product_images, products, users, flavor_tags};
 use crate::utils::auth::get_sub;
+use crate::handlers::users_handler::register_user;
 use crate::utils::image_file::move_image_to_deleted;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
+use actix_web::rt::spawn;
 use chrono::Utc;
 use diesel::Connection;
 use diesel::dsl::{delete, insert_into};
@@ -16,10 +18,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CreateNoteParams {
     pub product_id: Uuid,
     pub body: Option<String>,
+    pub selected_flavors: Option<Vec<i16>>,
     pub rating: i16,
     pub public_scope: i16,
     pub image_ids: Vec<Uuid>,
@@ -28,6 +31,7 @@ pub struct CreateNoteParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateNoteParams {
     pub body: Option<String>,
+    pub selected_flavors: Option<Vec<i16>>,
     pub rating: i16,
     pub public_scope: i16,
     pub image_ids: Vec<Uuid>,
@@ -59,7 +63,20 @@ pub async fn create_note(
     item: web::Json<CreateNoteParams>,
 ) -> Result<HttpResponse, Error> {
     let user_sub = get_sub(req)?;
-    let note = web::block(move || db_create_note(db, item, user_sub)).await??;
+    let item_for_db = item.clone();
+    let db_clone = db.clone();
+    let note = web::block(move || db_create_note(db_clone, actix_web::web::Json(item_for_db), user_sub)).await??;
+    
+    // 비동기로 제품 정보 업데이트 (flavors, rating, note_count)
+    let product_id = item.product_id;
+    let rating = item.rating;
+    let selected_flavors = item.selected_flavors.clone();
+    let db_clone = db.clone();
+    
+    spawn(async move {
+        let _ = web::block(move || db_update_product_stats(db_clone, product_id, rating, selected_flavors)).await;
+    });
+
     let response = CommonResponse {
         result: true,
         data: note,
@@ -174,10 +191,14 @@ fn db_create_note(
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user = users::table
+    let user = match users::table
         .filter(users::sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(handler_disel_error)?;
+    {
+        Ok(user) => user,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
 
     let new_note_id = Uuid::new_v4();
     let new_note = NewNote {
@@ -200,6 +221,21 @@ fn db_create_note(
             diesel::update(product_images::table.find(image_id))
                 .set(product_images::note_id.eq(new_note_id))
                 .execute(conn)?;
+        }
+
+        // Flavor tags 생성
+        if let Some(flavors) = &item.selected_flavors {
+            for flavor_val in flavors {
+                let new_flavor = NewFlavorTag {
+                    id: Uuid::new_v4(),
+                    flavor: *flavor_val,
+                    product_id: item.product_id,
+                    note_id: new_note_id,
+                };
+                insert_into(flavor_tags::table)
+                    .values(&new_flavor)
+                    .execute(conn)?;
+            }
         }
 
         Ok(note)
@@ -363,10 +399,14 @@ fn db_update_note(
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user = users::table
+    let user = match users::table
         .filter(users::sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(handler_disel_error)?;
+    {
+        Ok(user) => user,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
 
     // 노트 소유자 확인
     let note = notes::table
@@ -425,6 +465,52 @@ fn db_update_note(
                 .execute(conn)?;
         }
 
+        // Flavor tags 업데이트
+        if let Some(flavors) = &item.selected_flavors {
+            // 현재 flavor tags 조회
+            let current_flavors: Vec<i16> = flavor_tags::table
+                .filter(flavor_tags::note_id.eq(note_id))
+                .select(flavor_tags::flavor)
+                .load::<i16>(conn)?;
+
+            // 제거할 flavor tags
+            let flavors_to_remove: Vec<i16> = current_flavors
+                .iter()
+                .filter(|f| !flavors.contains(f))
+                .cloned()
+                .collect();
+
+            // 추가할 flavor tags
+            let flavors_to_add: Vec<i16> = flavors
+                .iter()
+                .filter(|f| !current_flavors.contains(f))
+                .cloned()
+                .collect();
+
+            // 제거 실행
+            if !flavors_to_remove.is_empty() {
+                delete(
+                    flavor_tags::table
+                        .filter(flavor_tags::note_id.eq(note_id))
+                        .filter(flavor_tags::flavor.eq_any(flavors_to_remove)),
+                )
+                .execute(conn)?;
+            }
+
+            // 추가 실행
+            for flavor_val in flavors_to_add {
+                let new_flavor = NewFlavorTag {
+                    id: Uuid::new_v4(),
+                    flavor: flavor_val,
+                    product_id: note.product_id,
+                    note_id: note_id,
+                };
+                insert_into(flavor_tags::table)
+                    .values(&new_flavor)
+                    .execute(conn)?;
+            }
+        }
+
         Ok(updated_note)
     })?;
 
@@ -439,10 +525,14 @@ fn db_delete_note(
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user = users::table
+    let user = match users::table
         .filter(users::sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(handler_disel_error)?;
+    {
+        Ok(user) => user,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
 
     // 노트 소유자 확인
     let note = notes::table
@@ -471,4 +561,56 @@ fn db_delete_note(
         .map_err(handler_disel_error)?;
 
     Ok(count == 1)
+}
+
+fn db_update_product_stats(
+    pool: web::Data<Pool>,
+    product_id: Uuid,
+    new_rating: i16,
+    new_flavors: Option<Vec<i16>>,
+) -> Result<(), CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    // 1. 제품 정보 조회
+    let product = products::table
+        .find(product_id)
+        .first::<Product>(conn)
+        .map_err(handler_disel_error)?;
+
+    // 2. 노트 카운트 조회 (DB에서 현재 제품에 대한 노트 수)
+    let note_count_from_db = notes::table
+        .filter(notes::product_id.eq(product_id))
+        .count()
+        .get_result::<i64>(conn)
+        .map_err(handler_disel_error)?;
+
+    // 3. Rating 업데이트
+    // 공식: (count * 기존 rating + new_rating) / (count + 1)
+    let old_rating = product.rating.unwrap_or(0.0);
+    let old_count = note_count_from_db - 1; 
+    let new_avg_rating = ((old_count as f32 * old_rating) + new_rating as f32) / note_count_from_db as f32;
+
+    // 4. Flavors 업데이트
+    let mut current_flavors_json = product.flavors.unwrap_or(serde_json::json!({}));
+    if let Some(flavors) = new_flavors {
+        if let Some(obj) = current_flavors_json.as_object_mut() {
+            for flavor_id in flavors {
+                let key = flavor_id.to_string();
+                let count = obj.get(&key).and_then(|v| v.as_i64()).unwrap_or(0);
+                obj.insert(key, serde_json::Value::from(count + 1));
+            }
+        }
+    }
+
+    // 5. DB 업데이트
+    diesel::update(products::table.find(product_id))
+        .set((
+            products::rating.eq(new_avg_rating),
+            products::note_count.eq(note_count_from_db as i32),
+            products::flavors.eq(current_flavors_json),
+        ))
+        .execute(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(())
 }

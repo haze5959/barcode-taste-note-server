@@ -6,6 +6,7 @@ use crate::errors::CommonResponseError;
 use crate::models::{CommonResponse, ProductImage, NewProductImage, User};
 use crate::schema::{product_images, users};
 use crate::errors::handler_disel_error;
+use crate::handlers::users_handler::register_user;
 use crate::utils::auth::get_sub;
 use crate::utils::image_file::move_image_to_deleted;
 use chrono::Utc;
@@ -117,10 +118,14 @@ fn db_create_image_with_file(
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user = users::table
+    let user = match users::table
         .filter(users::sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(handler_disel_error)?;
+    {
+        Ok(user) => user,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
 
     let new_image_id = Uuid::new_v4();
     let new_image = NewProductImage {
@@ -165,10 +170,14 @@ fn db_delete_image(
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user = users::table
+    let user = match users::table
         .filter(users::sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(handler_disel_error)?;
+    {
+        Ok(user) => user,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
 
     // 이미지 소유자 확인
     let image = product_images::table

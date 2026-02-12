@@ -57,6 +57,7 @@ diesel::table! {
         rating -> Nullable<Float4>,
         flavors -> Nullable<Jsonb>,
         registered -> Timestamptz,
+        note_count -> Int4,
     }
 }
 

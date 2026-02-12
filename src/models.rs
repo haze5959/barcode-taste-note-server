@@ -38,6 +38,7 @@ pub struct Product {
     pub rating: Option<f32>,
     pub flavors: Option<serde_json::Value>,
     pub registered: DateTime<Utc>,
+    pub note_count: i32,
 }
 
 #[derive(Insertable, Debug)]
@@ -109,4 +110,38 @@ pub struct NewNote {
     pub registered: DateTime<Utc>,
     pub rating: i16,
     pub public_scope: i16
+}
+
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = favorites)]
+pub struct Favorite {
+    pub id: Uuid,
+    pub product_id: Uuid,
+    pub user_id: Uuid,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = favorites)]
+pub struct NewFavorite {
+    pub id: Uuid,
+    pub product_id: Uuid,
+    pub user_id: Uuid,
+}
+
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = flavor_tags)]
+pub struct FlavorTag {
+    pub id: Uuid,
+    pub flavor: i16,
+    pub product_id: Uuid,
+    pub note_id: Uuid,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = flavor_tags)]
+pub struct NewFlavorTag {
+    pub id: Uuid,
+    pub flavor: i16,
+    pub product_id: Uuid,
+    pub note_id: Uuid,
 }

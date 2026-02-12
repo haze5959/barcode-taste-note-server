@@ -3,12 +3,13 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{Barcode, CommonResponse, NewBarcode, NewProduct, Product};
+use crate::models::{Barcode, CommonResponse, NewBarcode, NewProduct, Product, NewFavorite};
 use crate::schema::{barcodes, favorites, product_images, products, users};
 use crate::utils::auth::get_sub;
+use crate::handlers::users_handler::register_user;
 use chrono::Utc;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
-use diesel::dsl::{count, insert_into};
+use diesel::dsl::{count, insert_into, delete};
 use diesel::expression_methods::*;
 use diesel::Connection;
 use serde::{Deserialize, Serialize};
@@ -42,6 +43,12 @@ pub struct ProductDetailResponse {
 pub struct ProductListItem {
     pub product: Product,
     pub image_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetFavoriteParams {
+    pub product_id: Uuid,
+    pub is_favorite: bool,
 }
 
 // ============================================
@@ -123,6 +130,22 @@ pub async fn get_favorite_products_list(
     let response = CommonResponse {
         result: true,
         data: data,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /products/favorite
+pub async fn set_product_favorite(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    item: web::Json<SetFavoriteParams>,
+) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+    let _ = web::block(move || db_set_product_favorite(db, item, user_sub)).await??;
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -303,11 +326,15 @@ fn db_get_my_favorite_products_list(
     let offset = (page - 1) * per;
 
     // 유저 ID 조회
-    let user_id = users::table
+    let user_id = match users::table
         .filter(users::sub.eq(&user_sub))
         .select(users::id)
         .first::<Uuid>(conn)
-        .map_err(handler_disel_error)?;
+    {
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
 
     let favorite_product_ids: Vec<Uuid> = favorites::table
         .filter(favorites::user_id.eq(user_id))
@@ -350,4 +377,54 @@ fn db_get_my_favorite_products_list(
     }
 
     Ok(result)
+}
+
+fn db_set_product_favorite(
+    pool: web::Data<Pool>,
+    item: web::Json<SetFavoriteParams>,
+    user_sub: String,
+) -> Result<(), CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    // 유저 ID 조회
+    let user_id = match users::table
+        .filter(users::sub.eq(&user_sub))
+        .select(users::id)
+        .first::<Uuid>(conn)
+    {
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
+
+    if item.is_favorite {
+        // 이미 좋아요가 있는지 확인
+        let existing_favorite = favorites::table
+            .filter(favorites::user_id.eq(user_id))
+            .filter(favorites::product_id.eq(item.product_id))
+            .count()
+            .get_result::<i64>(conn)
+            .map_err(handler_disel_error)?;
+
+        if existing_favorite == 0 {
+             let new_favorite = NewFavorite {
+                id: Uuid::new_v4(),
+                product_id: item.product_id,
+                user_id: user_id,
+            };
+
+            insert_into(favorites::table)
+                .values(&new_favorite)
+                .execute(conn)
+                .map_err(handler_disel_error)?;
+        }
+    } else {
+        delete(favorites::table)
+            .filter(favorites::user_id.eq(user_id))
+            .filter(favorites::product_id.eq(item.product_id))
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+    }
+
+    Ok(())
 }

@@ -52,6 +52,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/me", web::delete().to(handlers::users_handler::delete_user))
                     // Products
                     .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list))
+                    .route("/products/favorite", web::post().to(handlers::products_handlers::set_product_favorite))
                     // Notes
                     .route("/notes", web::post().to(handlers::notes_handlers::create_note))
                     .route("/notes/{id}", web::put().to(handlers::notes_handlers::update_note))
