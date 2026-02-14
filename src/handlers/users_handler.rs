@@ -5,14 +5,15 @@ use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::models::{CommonResponse, NewUser, User};
 use crate::schema::users::dsl::*;
+use crate::schema::favorites;
+use crate::schema::notes;
 use crate::utils::auth::get_sub;
 use crate::errors::handler_disel_error;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
-use diesel::dsl::{delete, exists, insert_into, select};
+use diesel::dsl::{count, delete, exists, insert_into, select};
 use diesel::expression_methods::*;
 use diesel::PgConnection;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::vec::Vec;
 use uuid::Uuid;
 
@@ -26,26 +27,45 @@ pub struct SetUserNameParams {
     pub nick_name: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserDetailResponse {
+    pub user: User,
+    pub note_count: i64,
+}
+
 // ============================================
 // MARK: Handler for GET
 // ============================================
 
 /// Path: /users
 pub async fn get_users(db: web::Data<Pool>) -> Result<HttpResponse, Error> {
-    let user_arr = web::block(move || get_all_users(db)).await??;
-    let data = HashMap::from([("users".to_string(), user_arr)]);
+    let user_arr = web::block(move || get_all_user_infos(db)).await??;
     let response = CommonResponse {
         result: true,
-        data: data,
+        data: user_arr,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
 }
 
+// Path: /users/me
 pub async fn get_my_info(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpResponse, Error> {
     let user_sub = get_sub(req)?;
 
-    let user_info = web::block(move || get_users_by_sub(db, user_sub)).await??;
+    let user_info = web::block(move || get_user_info_by_sub(db, user_sub)).await??;
+    let response = CommonResponse {
+        result: true,
+        data: user_info,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// Path: /users/favorites
+pub async fn get_my_favorites(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+
+    let user_info = web::block(move || get_user_favorites_by_sub(db, user_sub)).await??;
     let response = CommonResponse {
         result: true,
         data: user_info,
@@ -59,7 +79,7 @@ pub async fn get_user_by_id(
     db: web::Data<Pool>,
     user_id: web::Path<Uuid>,
 ) -> Result<HttpResponse, Error> {
-    let user_info = web::block(move || db_get_user_by_id(db, user_id.into_inner())).await??;
+    let user_info = web::block(move || db_get_user_info_by_id(db, user_id.into_inner())).await??;
     let response = CommonResponse {
         result: true,
         data: user_info,
@@ -128,30 +148,81 @@ pub async fn delete_user(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpRe
 // ============================================
 // MARK: Internal Methods
 // ============================================
-fn get_all_users(pool: web::Data<Pool>) -> Result<Vec<User>, CommonResponseError> {
+fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let items = users
         .load::<User>(conn)
         .map_err(handler_disel_error)?;
-    Ok(items)
+
+    let mut result = Vec::new();
+
+    for user in items {
+        let note_count: i64 = notes::table
+            .filter(notes::user_id.eq(user.id))
+            .select(count(notes::id))
+            .first(conn)
+            .map_err(handler_disel_error)?;
+
+        result.push(UserDetailResponse {
+            user,
+            note_count,
+        });
+    }
+
+    Ok(result)
 }
 
-fn get_users_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<User, CommonResponseError> {
+fn get_user_info_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<UserDetailResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    let items = users
+    let user = users
         .filter(sub.eq(user_sub))
         .first::<User>(conn)
         .map_err(handler_disel_error)?;
-    Ok(items)
+
+    let note_count: i64 = notes::table
+        .filter(notes::user_id.eq(user.id))
+        .select(count(notes::id))
+        .first(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(UserDetailResponse {
+        user,
+        note_count,
+    })
 }
 
-fn db_get_user_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<User, CommonResponseError> {
+fn get_user_favorites_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<Vec<Uuid>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    let items = users
+    let user = users
+        .filter(sub.eq(user_sub))
+        .first::<User>(conn)
+        .map_err(handler_disel_error)?;
+
+    let favorite_product_ids: Vec<Uuid> = favorites::table
+        .filter(favorites::user_id.eq(user.id))
+        .select(favorites::product_id)
+        .load::<Uuid>(conn)
+        .map_err(handler_disel_error)?;
+    Ok(favorite_product_ids)
+}
+
+fn db_get_user_info_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<UserDetailResponse, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+    let user = users
         .find(user_id)
         .get_result::<User>(conn)
         .map_err(handler_disel_error)?;
-    Ok(items)
+
+    let note_count: i64 = notes::table
+        .filter(notes::user_id.eq(user.id))
+        .select(count(notes::id))
+        .first(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(UserDetailResponse {
+        user,
+        note_count,
+    })
 }
 
 fn add_single_user(

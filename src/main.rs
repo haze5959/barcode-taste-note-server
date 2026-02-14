@@ -33,21 +33,22 @@ async fn main() -> std::io::Result<()> {
             // Products
             .route("/products", web::post().to(handlers::products_handlers::create_product))
             .route("/products", web::get().to(handlers::products_handlers::get_products_list))
-            .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id))
             .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode))
+            .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id))
             // Notes
             .route("/notes", web::get().to(handlers::notes_handlers::get_notes_list))
-            .route("/notes/{id}", web::get().to(handlers::notes_handlers::get_note_by_id))
             .route("/notes/user/{id}", web::get().to(handlers::notes_handlers::get_notes_by_user))
+            .route("/notes/{id}", web::get().to(handlers::notes_handlers::get_note_by_id))
             // BTN APP
             .route("/btn/home", web::get().to(handlers::btn_app_handlers::get_home_info))
             // Authenticated routes
             .service(
-                web::scope("")
+                web::scope("api")
                     .wrap(HttpAuthentication::bearer(auth::validator))
                     // Users
                     .route("/users", web::post().to(handlers::users_handler::add_user))
                     .route("/users/me", web::get().to(handlers::users_handler::get_my_info))
+                    .route("/users/favorites", web::get().to(handlers::users_handler::get_my_favorites))
                     .route("/users/me", web::put().to(handlers::users_handler::update_user_nick))
                     .route("/users/me", web::delete().to(handlers::users_handler::delete_user))
                     // Products

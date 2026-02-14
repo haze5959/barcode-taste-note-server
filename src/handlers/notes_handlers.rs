@@ -3,19 +3,18 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{CommonResponse, NewNote, Note, Product, User, NewFlavorTag};
-use crate::schema::{notes, product_images, products, users, flavor_tags};
-use crate::utils::auth::get_sub;
 use crate::handlers::users_handler::register_user;
+use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, User};
+use crate::schema::{flavor_tags, notes, product_images, products, users};
+use crate::utils::auth::get_sub;
 use crate::utils::image_file::move_image_to_deleted;
-use actix_web::{Error, HttpRequest, HttpResponse, web};
 use actix_web::rt::spawn;
+use actix_web::{Error, HttpRequest, HttpResponse, web};
 use chrono::Utc;
 use diesel::Connection;
 use diesel::dsl::{delete, insert_into};
 use diesel::expression_methods::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -65,16 +64,21 @@ pub async fn create_note(
     let user_sub = get_sub(req)?;
     let item_for_db = item.clone();
     let db_clone = db.clone();
-    let note = web::block(move || db_create_note(db_clone, actix_web::web::Json(item_for_db), user_sub)).await??;
-    
+    let note =
+        web::block(move || db_create_note(db_clone, actix_web::web::Json(item_for_db), user_sub))
+            .await??;
+
     // 비동기로 제품 정보 업데이트 (flavors, rating, note_count)
     let product_id = item.product_id;
     let rating = item.rating;
     let selected_flavors = item.selected_flavors.clone();
     let db_clone = db.clone();
-    
+
     spawn(async move {
-        let _ = web::block(move || db_update_product_stats(db_clone, product_id, rating, selected_flavors)).await;
+        let _ = web::block(move || {
+            db_update_product_stats(db_clone, product_id, rating, selected_flavors)
+        })
+        .await;
     });
 
     let response = CommonResponse {
@@ -109,10 +113,9 @@ pub async fn get_notes_list(
     query: web::Query<NoteListQuery>,
 ) -> Result<HttpResponse, Error> {
     let notes_list = web::block(move || db_get_notes_list(db, query.into_inner())).await??;
-    let data = HashMap::from([("notes".to_string(), notes_list)]);
     let response = CommonResponse {
         result: true,
-        data: data,
+        data: notes_list,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -127,10 +130,9 @@ pub async fn get_notes_by_user(
     let notes_list =
         web::block(move || db_get_notes_by_user(db, user_id.into_inner(), query.into_inner()))
             .await??;
-    let data = HashMap::from([("notes".to_string(), notes_list)]);
     let response = CommonResponse {
         result: true,
-        data: data,
+        data: notes_list,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -219,7 +221,10 @@ fn db_create_note(
         // 이미지들을 노트에 연결
         for image_id in &item.image_ids {
             diesel::update(product_images::table.find(image_id))
-                .set(product_images::note_id.eq(new_note_id))
+                .set((
+                    product_images::note_id.eq(new_note.id),
+                    product_images::product_id.eq(new_note.product_id),
+                ))
                 .execute(conn)?;
         }
 
@@ -229,8 +234,8 @@ fn db_create_note(
                 let new_flavor = NewFlavorTag {
                     id: Uuid::new_v4(),
                     flavor: *flavor_val,
-                    product_id: item.product_id,
-                    note_id: new_note_id,
+                    product_id: new_note.product_id,
+                    note_id: new_note.id,
                 };
                 insert_into(flavor_tags::table)
                     .values(&new_flavor)
@@ -587,8 +592,9 @@ fn db_update_product_stats(
     // 3. Rating 업데이트
     // 공식: (count * 기존 rating + new_rating) / (count + 1)
     let old_rating = product.rating.unwrap_or(0.0);
-    let old_count = note_count_from_db - 1; 
-    let new_avg_rating = ((old_count as f32 * old_rating) + new_rating as f32) / note_count_from_db as f32;
+    let old_count = note_count_from_db - 1;
+    let new_avg_rating =
+        ((old_count as f32 * old_rating) + new_rating as f32) / note_count_from_db as f32;
 
     // 4. Flavors 업데이트
     let mut current_flavors_json = product.flavors.unwrap_or(serde_json::json!({}));

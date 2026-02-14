@@ -28,6 +28,7 @@ pub struct ImageUploadResponse {
 pub struct ImageUploadForm {
     #[multipart(limit = "10MB")]
     pub image: TempFile,
+    pub id: Text<String>,
     pub product_id: Option<Text<String>>,
     pub note_id: Option<Text<String>>,
 }
@@ -45,7 +46,9 @@ pub async fn upload_image(
     MultipartForm(form): MultipartForm<ImageUploadForm>,
 ) -> Result<HttpResponse, Error> {
     let user_sub = get_sub(req)?;
-
+    let image_id = Uuid::parse_str(&form.id.0)
+        .map_err(|_| CommonResponseError::InvalidParameter)?;
+    
     let product_id = form.product_id.and_then(|t| Uuid::parse_str(&t.0).ok());
     let note_id = form.note_id.and_then(|t| Uuid::parse_str(&t.0).ok());
 
@@ -63,16 +66,13 @@ pub async fn upload_image(
     })?;
 
     let image = web::block(move || {
-        db_create_image_with_file(db, product_id, note_id, user_sub, image_bytes)
+        db_create_image_with_file(db, product_id, note_id, user_sub, image_id, image_bytes)
     })
     .await??;
 
     let response = CommonResponse {
         result: true,
-        data: ImageUploadResponse {
-            id: image.id,
-            url: format!("/static/images/{}.jpeg", image.id),
-        },
+        data: image.id,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -113,6 +113,7 @@ fn db_create_image_with_file(
     product_id: Option<Uuid>,
     note_id: Option<Uuid>,
     user_sub: String,
+    image_id: Uuid,
     image_bytes: Vec<u8>,
 ) -> Result<ProductImage, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
@@ -127,9 +128,8 @@ fn db_create_image_with_file(
         Err(e) => return Err(handler_disel_error(e)),
     };
 
-    let new_image_id = Uuid::new_v4();
     let new_image = NewProductImage {
-        id: new_image_id,
+        id: image_id,
         product_id,
         note_id,
         user_id: Some(user.id),
@@ -148,7 +148,7 @@ fn db_create_image_with_file(
     })?;
 
     // 이미지 파일 저장
-    let file_path = format!("{}/{}.jpeg", IMAGE_DIR, new_image_id);
+    let file_path = format!("{}/{}.jpeg", IMAGE_DIR, image_id);
     let mut file: std::fs::File = std::fs::File::create(&file_path).map_err(|e| {
         eprintln!("Failed to create image file: {}", e);
         CommonResponseError::InternalServerError

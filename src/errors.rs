@@ -14,6 +14,7 @@ pub enum CommonResponseError {
     DuplicatedError= 103,
     JWKSFetchError= 104,
     RecordNotFound = 105,
+    InvalidParameter = 106,
     Unknown = 255
 }
 

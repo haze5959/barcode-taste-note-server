@@ -13,7 +13,6 @@ use diesel::dsl::{count, insert_into, delete};
 use diesel::expression_methods::*;
 use diesel::Connection;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,6 +22,7 @@ pub struct CreateProductParams {
     #[serde(rename = "type")]
     pub type_: i16,
     pub barcode_id: Option<String>,
+    pub image_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,10 +109,9 @@ pub async fn get_products_list(
     query: web::Query<ProductListQuery>,
 ) -> Result<HttpResponse, Error> {
     let products_list = web::block(move || db_get_products_list(db, query.into_inner())).await??;
-    let data = HashMap::from([("products".to_string(), products_list)]);
     let response = CommonResponse {
         result: true,
-        data: data,
+        data: products_list,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -126,10 +125,9 @@ pub async fn get_favorite_products_list(
 ) -> Result<HttpResponse, Error> {
     let user_sub = get_sub(req)?;
     let products_list = web::block(move || db_get_my_favorite_products_list(db, query.into_inner(), user_sub)).await??;
-    let data = HashMap::from([("products".to_string(), products_list)]);
     let response = CommonResponse {
         result: true,
-        data: data,
+        data: products_list,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -186,6 +184,13 @@ fn db_create_product(
 
             insert_into(barcodes::table)
                 .values(&new_barcode)
+                .execute(conn)?;
+        }
+
+        // image_id가 제공된 경우 이미지 연결
+        if let Some(image_id) = item.image_id {
+            diesel::update(product_images::table.find(image_id))
+                .set(product_images::product_id.eq(new_product_id))
                 .execute(conn)?;
         }
 
