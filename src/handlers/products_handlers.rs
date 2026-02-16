@@ -3,7 +3,7 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{Barcode, CommonResponse, NewBarcode, NewProduct, Product, NewFavorite};
+use crate::models::{Barcode, CommonResponse, NewBarcode, NewProduct, Product, ProductLite, NewFavorite};
 use crate::schema::{barcodes, favorites, product_images, products, users};
 use crate::utils::auth::get_sub;
 use crate::handlers::users_handler::register_user;
@@ -41,7 +41,7 @@ pub struct ProductDetailResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductListItem {
-    pub product: Product,
+    pub product: ProductLite,
     pub image_ids: Vec<Uuid>,
 }
 
@@ -292,10 +292,11 @@ fn db_get_products_list(
         products_query = products_query.filter(products::name.like(format!("%{}%", name_filter)));
     }
 
-    let products_list: Vec<Product> = products_query
+    let products_list: Vec<ProductLite> = products_query
+        .select((products::id, products::name, products::type_, products::rating, products::registered))
         .offset(offset)
         .limit(per)
-        .load::<Product>(conn)
+        .load::<ProductLite>(conn)
         .map_err(handler_disel_error)?;
 
     // 각 제품에 대한 이미지 ID들 조회 (최대 3개)
@@ -359,8 +360,9 @@ fn db_get_my_favorite_products_list(
         products_query = products_query.filter(products::name.like(format!("%{}%", name_filter)));
     }
 
-    let products_list: Vec<Product> = products_query
-        .load::<Product>(conn)
+    let products_list: Vec<ProductLite> = products_query
+        .select((products::id, products::name, products::type_, products::rating, products::registered))
+        .load::<ProductLite>(conn)
         .map_err(handler_disel_error)?;
 
     // 각 제품에 대한 이미지 ID들 조회 (최대 3개)

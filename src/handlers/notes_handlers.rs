@@ -4,7 +4,7 @@ use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
 use crate::handlers::users_handler::register_user;
-use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, User};
+use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, ProductLite, User};
 use crate::schema::{flavor_tags, notes, product_images, products, users};
 use crate::utils::auth::get_sub;
 use crate::utils::image_file::move_image_to_deleted;
@@ -46,7 +46,7 @@ pub struct NoteListQuery {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NoteResponse {
     pub note: Note,
-    pub product: Option<Product>,
+    pub product: Option<ProductLite>,
     pub user: Option<User>,
     pub image_ids: Vec<Uuid>,
 }
@@ -193,19 +193,20 @@ fn db_create_note(
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user = match users::table
+    let user_id = match users::table
         .filter(users::sub.eq(&user_sub))
-        .first::<User>(conn)
+        .select(users::id)
+        .first::<Uuid>(conn)
     {
-        Ok(user) => user,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
         Err(e) => return Err(handler_disel_error(e)),
     };
 
     let new_note_id = Uuid::new_v4();
     let new_note = NewNote {
         id: new_note_id,
-        user_id: user.id,
+        user_id,
         product_id: item.product_id,
         body: item.body.clone(),
         registered: Utc::now(),
@@ -262,11 +263,15 @@ fn db_get_note_by_id(
 
     let product = products::table
         .find(note.product_id)
-        .first::<Product>(conn)
+        .select((products::id, products::name, products::type_, products::rating, products::registered))
+        .first::<ProductLite>(conn)
         .map_err(handler_disel_error)?;
 
     // 유저 조회 (public_scope에 따라 옵셔널)
-    let user = users::table.find(note.user_id).first::<User>(conn).ok();
+    let user = users::table.select((users::id, users::nick_name, users::intro, users::image_id))
+        .find(note.user_id)
+        .first::<User>(conn)
+        .ok();
 
     // 이미지 ID들 조회
     let image_ids: Vec<Uuid> = product_images::table
@@ -312,21 +317,20 @@ fn db_get_notes_list(
     let mut result = Vec::new();
 
     for note in notes_list {
-        let product = if query.product_id == None {
-            None
-        } else {
-            products::table
+        if note.public_scope == 0 {
+            continue;
+        }
+        let product = products::table
                 .find(note.product_id)
-                .first::<Product>(conn)
-                .ok()
-        };
+                .select((products::id, products::name, products::type_, products::rating, products::registered))
+                .first::<ProductLite>(conn)
+                .ok();
 
         // 유저 조회
-        let user = if note.public_scope == 0 {
-            None
-        } else {
-            users::table.find(note.user_id).first::<User>(conn).ok()
-        };
+        let user = users::table.select((users::id, users::nick_name, users::intro, users::image_id))
+            .find(note.user_id)
+            .first::<User>(conn)
+            .ok();
 
         // 이미지 ID들 조회 (최대 3개)
         let image_ids: Vec<Uuid> = product_images::table
@@ -373,7 +377,8 @@ fn db_get_notes_by_user(
     for note in notes_list {
         let product = products::table
             .find(note.product_id)
-            .first::<Product>(conn)
+            .select((products::id, products::name, products::type_, products::rating, products::registered))
+            .first::<ProductLite>(conn)
             .ok();
 
         // 이미지 ID들 조회 (최대 3개)
@@ -404,12 +409,13 @@ fn db_update_note(
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user = match users::table
+    let user_id = match users::table
         .filter(users::sub.eq(&user_sub))
-        .first::<User>(conn)
+        .select(users::id)
+        .first::<Uuid>(conn)
     {
-        Ok(user) => user,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
         Err(e) => return Err(handler_disel_error(e)),
     };
 
@@ -419,7 +425,7 @@ fn db_update_note(
         .first::<Note>(conn)
         .map_err(handler_disel_error)?;
 
-    if note.user_id != user.id {
+    if note.user_id != user_id {
         return Err(CommonResponseError::AuthValidationFail);
     }
 
@@ -530,12 +536,13 @@ fn db_delete_note(
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user = match users::table
+    let user_id = match users::table
+        .select(users::id)
         .filter(users::sub.eq(&user_sub))
-        .first::<User>(conn)
+        .first::<Uuid>(conn)
     {
-        Ok(user) => user,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
         Err(e) => return Err(handler_disel_error(e)),
     };
 
@@ -545,7 +552,7 @@ fn db_delete_note(
         .first::<Note>(conn)
         .map_err(handler_disel_error)?;
 
-    if note.user_id != user.id {
+    if note.user_id != user_id {
         return Err(CommonResponseError::AuthValidationFail);
     }
 

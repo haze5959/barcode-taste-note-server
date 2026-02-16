@@ -4,7 +4,7 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{CommonResponse, User, Product, Note};
+use crate::models::{CommonResponse, User, ProductLite, Note};
 use crate::schema::{product_images, users, products, notes};
 use crate::handlers::products_handlers::ProductListItem;
 use crate::handlers::notes_handlers::NoteResponse;
@@ -57,10 +57,11 @@ fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, C
     let conn = &mut pool.get().unwrap();
 
     // 제품 리스트 조회
-    let products_list: Vec<Product> = products::table
+    let products_list: Vec<ProductLite> = products::table
+        .select((products::id, products::name, products::type_, products::rating, products::registered))
         .order(products::registered.desc())
         .limit(HOME_INFO_LENGTH)
-        .load::<Product>(conn)
+        .load::<ProductLite>(conn)
         .map_err(handler_disel_error)?;
 
     // 각 제품에 대한 이미지 ID들 조회 (최대 3개)
@@ -101,11 +102,15 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
     for note in notes_list {
         let product = products::table
             .find(note.product_id)
-            .first::<Product>(conn)
+            .select((products::id, products::name, products::type_, products::rating, products::registered))
+            .first::<ProductLite>(conn)
             .ok();
 
         // 유저 조회
-        let user = users::table.find(note.user_id).first::<User>(conn).ok();
+        let user = users::table.select((users::id, users::nick_name, users::intro, users::image_id))
+            .find(note.user_id)
+            .first::<User>(conn)
+            .ok();
 
         // 이미지 ID들 조회 (최대 3개)
         let image_ids: Vec<Uuid> = product_images::table

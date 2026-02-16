@@ -3,7 +3,7 @@ use crate::constants::IMAGE_DIR;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
-use crate::models::{CommonResponse, ProductImage, NewProductImage, User};
+use crate::models::{CommonResponse, ProductImage, NewProductImage};
 use crate::schema::{product_images, users};
 use crate::errors::handler_disel_error;
 use crate::handlers::users_handler::register_user;
@@ -119,12 +119,13 @@ fn db_create_image_with_file(
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user = match users::table
+    let user_id = match users::table
         .filter(users::sub.eq(&user_sub))
-        .first::<User>(conn)
+        .select(users::id)
+        .first::<Uuid>(conn)
     {
-        Ok(user) => user,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
         Err(e) => return Err(handler_disel_error(e)),
     };
 
@@ -132,7 +133,7 @@ fn db_create_image_with_file(
         id: image_id,
         product_id,
         note_id,
-        user_id: Some(user.id),
+        user_id: Some(user_id),
         registered: Utc::now(),
     };
 
@@ -148,7 +149,7 @@ fn db_create_image_with_file(
     })?;
 
     // 이미지 파일 저장
-    let file_path = format!("{}/{}.jpeg", IMAGE_DIR, image_id);
+    let file_path = format!("{}/{}", IMAGE_DIR, image_id);
     let mut file: std::fs::File = std::fs::File::create(&file_path).map_err(|e| {
         eprintln!("Failed to create image file: {}", e);
         CommonResponseError::InternalServerError
@@ -170,12 +171,13 @@ fn db_delete_image(
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user = match users::table
+    let user_id = match users::table
         .filter(users::sub.eq(&user_sub))
-        .first::<User>(conn)
+        .select(users::id)
+        .first::<Uuid>(conn)
     {
-        Ok(user) => user,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
         Err(e) => return Err(handler_disel_error(e)),
     };
 
@@ -185,7 +187,7 @@ fn db_delete_image(
         .first::<ProductImage>(conn)
         .map_err(handler_disel_error)?;
 
-    if image.user_id != Some(user.id) {
+    if image.user_id != Some(user_id) {
         return Err(CommonResponseError::AuthValidationFail);
     }
 

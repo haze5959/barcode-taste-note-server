@@ -66,6 +66,8 @@ diesel::table! {
         id -> Uuid,
         nick_name -> Text,
         sub -> Text,
+        intro -> Nullable<Text>,
+        image_id -> Nullable<Uuid>,
     }
 }
 

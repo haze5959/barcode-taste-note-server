@@ -16,7 +16,8 @@ pub struct CommonResponse<DataT> {
 pub struct User {
     pub id: Uuid,
     pub nick_name: String,
-    pub sub: String
+    pub intro: Option<String>,
+    pub image_id: Option<Uuid>,
 }
 
 #[derive(Insertable, Debug)]
@@ -39,6 +40,17 @@ pub struct Product {
     pub flavors: Option<serde_json::Value>,
     pub registered: DateTime<Utc>,
     pub note_count: i32,
+}
+
+#[derive(Queryable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = products)]
+pub struct ProductLite {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_: i16,
+    pub rating: Option<f32>,
+    pub registered: DateTime<Utc>,
 }
 
 #[derive(Insertable, Debug)]
