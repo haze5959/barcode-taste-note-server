@@ -30,6 +30,9 @@ pub struct ProductListQuery {
     pub page: Option<i64>,
     pub per: Option<i64>,
     pub name: Option<String>,
+    #[serde(rename = "type")]
+    pub type_: Option<i16>,
+    pub order_by: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -290,6 +293,24 @@ fn db_get_products_list(
     // 이름 필터링
     if let Some(name_filter) = query.name {
         products_query = products_query.filter(products::name.like(format!("%{}%", name_filter)));
+    }
+
+    // 타입 필터링
+    if let Some(type_filter) = query.type_ {
+        products_query = products_query.filter(products::type_.eq(type_filter));
+    }
+
+    // 정렬
+    if let Some(order_by) = query.order_by {
+        if order_by == "rating" {
+            products_query = products_query.order(products::rating.desc());
+        } else {
+            // default: registered
+            products_query = products_query.order(products::registered.desc());
+        }
+    } else {
+        // default: registered
+        products_query = products_query.order(products::registered.desc());
     }
 
     let products_list: Vec<ProductLite> = products_query

@@ -124,7 +124,8 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
             note,
             product,
             user,
-            image_ids: image_ids,
+            image_ids,
+            flavors: None,
         });
     }
 

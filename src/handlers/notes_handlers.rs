@@ -49,6 +49,7 @@ pub struct NoteResponse {
     pub product: Option<ProductLite>,
     pub user: Option<User>,
     pub image_ids: Vec<Uuid>,
+    pub flavors: Option<Vec<i16>>,
 }
 
 // ============================================
@@ -280,11 +281,25 @@ fn db_get_note_by_id(
         .load::<Uuid>(conn)
         .map_err(handler_disel_error)?;
 
+    // 해당 노트의 flavor_tags에서 flavor 값 리스트 조회
+    let flavor_values: Vec<i16> = flavor_tags::table
+        .filter(flavor_tags::note_id.eq(note_id))
+        .select(flavor_tags::flavor)
+        .load::<i16>(conn)
+        .map_err(handler_disel_error)?;
+
+    let flavors = if flavor_values.is_empty() {
+        None
+    } else {
+        Some(flavor_values)
+    };
+
     Ok(NoteResponse {
         note,
         product: Some(product),
         user,
-        image_ids: image_ids,
+        image_ids,
+        flavors,
     })
 }
 
@@ -344,7 +359,8 @@ fn db_get_notes_list(
             note,
             product,
             user,
-            image_ids: image_ids,
+            image_ids,
+            flavors: None,
         });
     }
 
@@ -393,7 +409,8 @@ fn db_get_notes_by_user(
             note,
             product,
             user: None,
-            image_ids: image_ids,
+            image_ids,
+            flavors: None,
         });
     }
 
