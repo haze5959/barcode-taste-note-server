@@ -193,7 +193,9 @@ fn db_create_product(
         // image_id가 제공된 경우 이미지 연결
         if let Some(image_id) = item.image_id {
             diesel::update(product_images::table.find(image_id))
-                .set(product_images::product_id.eq(new_product_id))
+                .set((
+                    product_images::product_id.eq(new_product_id)
+                ))
                 .execute(conn)?;
         }
 

@@ -61,6 +61,9 @@ async fn main() -> std::io::Result<()> {
                     // Images
                     .route("/images", web::post().to(handlers::images_handlers::upload_image))
                     .route("/images/{id}", web::delete().to(handlers::images_handlers::delete_image))
+                    // BTN APP
+                    .route("/btn/report", web::get().to(handlers::btn_app_handlers::get_my_reports))
+                    .route("/btn/report", web::post().to(handlers::btn_app_handlers::create_report))
             )
     })
     .bind("172.30.1.21:5959")?

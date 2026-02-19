@@ -66,7 +66,7 @@ pub async fn upload_image(
     })?;
 
     let image = web::block(move || {
-        db_create_image_with_file(db, product_id, note_id, user_sub, image_id, image_bytes)
+        db_create_image_with_file(db, product_id, note_id, Some(user_sub), image_id, image_bytes)
     })
     .await??;
 
@@ -112,28 +112,34 @@ fn db_create_image_with_file(
     pool: web::Data<Pool>,
     product_id: Option<Uuid>,
     note_id: Option<Uuid>,
-    user_sub: String,
+    user_sub: Option<String>,
     image_id: Uuid,
     image_bytes: Vec<u8>,
 ) -> Result<ProductImage, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user_id = match users::table
-        .filter(users::sub.eq(&user_sub))
-        .select(users::id)
-        .first::<Uuid>(conn)
-    {
-        Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
-        Err(e) => return Err(handler_disel_error(e)),
+    let user_id: Option<Uuid> = if let Some(user_sub) = user_sub {
+        let id = match users::table
+            .filter(users::sub.eq(&user_sub))
+            .select(users::id)
+            .first::<Uuid>(conn) {
+            Ok(id) => id,
+            Err(diesel::result::Error::NotFound) => {
+                register_user(conn, None, &user_sub)?.id
+            }
+            Err(e) => return Err(handler_disel_error(e)),
+        };
+        Some(id)
+    } else {
+        None
     };
 
     let new_image = NewProductImage {
         id: image_id,
         product_id,
         note_id,
-        user_id: Some(user_id),
+        user_id: user_id,
         registered: Utc::now(),
     };
 

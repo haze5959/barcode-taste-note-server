@@ -4,11 +4,15 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{CommonResponse, User, ProductLite, Note};
-use crate::schema::{product_images, users, products, notes};
+use crate::handlers::users_handler::register_user;
+use crate::models::{CommonResponse, User, ProductLite, Note, Report, NewReport};
+use crate::schema::{product_images, reports, users, products, notes};
 use crate::handlers::products_handlers::ProductListItem;
 use crate::handlers::notes_handlers::NoteResponse;
-use actix_web::{Error, HttpResponse, web};
+use crate::utils::auth::get_sub;
+use actix_web::{Error, HttpRequest, HttpResponse, web};
+use chrono::Utc;
+use diesel::dsl::insert_into;
 use diesel::expression_methods::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -17,6 +21,12 @@ use uuid::Uuid;
 pub struct HomeResponse {
     pub recent_notes: Vec<NoteResponse>,
     pub recent_products: Vec<ProductListItem>
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateReportParams {
+    pub product_id: Option<Uuid>,
+    pub body: Option<String>,
 }
 
 // ============================================
@@ -44,6 +54,41 @@ pub async fn get_home_info(db: web::Data<Pool>) -> Result<HttpResponse, Error> {
     let response = CommonResponse {
         result: true,
         data: data,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /api/btn/report (GET)
+pub async fn get_my_reports(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+    let reports = web::block(move || db_get_my_reports(db, user_sub)).await??;
+    let response = CommonResponse {
+        result: true,
+        data: reports,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: Handler for POST
+// ============================================
+
+/// Path: /api/btn/report (POST)
+pub async fn create_report(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    item: web::Json<CreateReportParams>,
+) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+    let report = web::block(move || db_create_report(db, item, user_sub)).await??;
+    let response = CommonResponse {
+        result: true,
+        data: report,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -130,4 +175,70 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
     }
 
     Ok(result)
+}
+
+fn db_get_my_reports(
+    pool: web::Data<Pool>,
+    user_sub: String,
+) -> Result<Vec<Report>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    // sub로 user_id 조회
+    let user_id = match users::table
+        .filter(users::sub.eq(&user_sub))
+        .select(users::id)
+        .first::<Uuid>(conn)
+    {
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
+
+    // user_id에 해당하는 reports 전부 조회
+    let result = reports::table
+        .filter(reports::user_id.eq(user_id))
+        .load::<Report>(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(result)
+}
+
+fn db_create_report(
+    pool: web::Data<Pool>,
+    item: web::Json<CreateReportParams>,
+    user_sub: String,
+) -> Result<Report, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    // sub로 user_id 조회 (못 찾으면 실패)
+    let user_id = match users::table
+        .filter(users::sub.eq(&user_sub))
+        .select(users::id)
+        .first::<Uuid>(conn)
+    {
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => return Err(CommonResponseError::AuthValidationFail),
+        Err(e) => return Err(handler_disel_error(e)),
+    };
+
+    // product_id 유무에 따라 type 결정: 있으면 0, 없으면 1
+    let report_type: i16 = if item.product_id.is_some() { 0 } else { 1 };
+
+    let new_report = NewReport {
+        id: Uuid::new_v4(),
+        product_id: item.product_id,
+        user_id,
+        body: item.body.clone(),
+        state: Some(0),
+        reply: None,
+        registered: Some(Utc::now()),
+        type_: report_type,
+    };
+
+    let report = insert_into(reports::table)
+        .values(&new_report)
+        .get_result::<Report>(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(report)
 }

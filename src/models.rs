@@ -157,3 +157,31 @@ pub struct NewFlavorTag {
     pub product_id: Uuid,
     pub note_id: Uuid,
 }
+
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = reports)]
+pub struct Report {
+    pub id: Uuid,
+    pub product_id: Option<Uuid>,
+    pub user_id: Uuid,
+    pub body: Option<String>,
+    pub state: Option<i16>,
+    pub reply: String,
+    pub registered: Option<DateTime<Utc>>,
+    #[serde(rename = "type")]
+    pub type_: i16,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = reports)]
+pub struct NewReport {
+    pub id: Uuid,
+    pub product_id: Option<Uuid>,
+    pub user_id: Uuid,
+    pub body: Option<String>,
+    pub state: Option<i16>,
+    pub reply: Option<String>,
+    pub registered: Option<DateTime<Utc>>,
+    #[diesel(column_name = type_)]
+    pub type_: i16,
+}

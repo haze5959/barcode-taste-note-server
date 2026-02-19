@@ -62,6 +62,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    reports (id) {
+        id -> Uuid,
+        product_id -> Nullable<Uuid>,
+        user_id -> Uuid,
+        body -> Nullable<Text>,
+        state -> Nullable<Int2>,
+        reply -> Text,
+        registered -> Nullable<Timestamptz>,
+        #[sql_name = "type"]
+        type_ -> Int2,
+    }
+}
+
+diesel::table! {
     users (id) {
         id -> Uuid,
         nick_name -> Text,
@@ -85,5 +99,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     notes,
     product_images,
     products,
+    reports,
     users,
 );

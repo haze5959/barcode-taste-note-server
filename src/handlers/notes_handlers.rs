@@ -224,6 +224,7 @@ fn db_create_note(
         for image_id in &item.image_ids {
             diesel::update(product_images::table.find(image_id))
                 .set((
+                    product_images::user_id.eq(user_id),
                     product_images::note_id.eq(new_note.id),
                     product_images::product_id.eq(new_note.product_id),
                 ))
