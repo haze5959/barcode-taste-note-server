@@ -270,7 +270,7 @@ fn db_get_note_by_id(
         .map_err(handler_disel_error)?;
 
     // 유저 조회 (public_scope에 따라 옵셔널)
-    let user = users::table.select((users::id, users::nick_name, users::intro, users::image_id))
+    let user = users::table.select(crate::models::USER_COLUMNS)
         .find(note.user_id)
         .first::<User>(conn)
         .ok();
@@ -343,7 +343,7 @@ fn db_get_notes_list(
                 .ok();
 
         // 유저 조회
-        let user = users::table.select((users::id, users::nick_name, users::intro, users::image_id))
+        let user = users::table.select(crate::models::USER_COLUMNS)
             .find(note.user_id)
             .first::<User>(conn)
             .ok();

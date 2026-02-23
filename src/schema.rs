@@ -1,5 +1,11 @@
 // @generated automatically by Diesel CLI.
 
+pub mod sql_types {
+    #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "point", schema = "pg_catalog"))]
+    pub struct Point;
+}
+
 diesel::table! {
     barcodes (id) {
         id -> Uuid,
@@ -26,6 +32,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::Point;
+
     notes (id) {
         id -> Uuid,
         user_id -> Uuid,
@@ -34,6 +43,8 @@ diesel::table! {
         registered -> Timestamptz,
         rating -> Int2,
         public_scope -> Int2,
+        details -> Nullable<Jsonb>,
+        location -> Nullable<Point>,
     }
 }
 

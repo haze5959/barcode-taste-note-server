@@ -20,6 +20,20 @@ pub struct User {
     pub image_id: Option<Uuid>,
 }
 
+pub type UserColumns = (
+    crate::schema::users::id,
+    crate::schema::users::nick_name,
+    crate::schema::users::intro,
+    crate::schema::users::image_id,
+);
+
+pub const USER_COLUMNS: UserColumns = (
+    crate::schema::users::id,
+    crate::schema::users::nick_name,
+    crate::schema::users::intro,
+    crate::schema::users::image_id,
+);
+
 #[derive(Insertable, Debug)]
 #[diesel(table_name = users)]
 pub struct NewUser<'a> {

@@ -3,7 +3,7 @@ use crate::constants::DEFAULT_NICK;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
-use crate::models::{CommonResponse, NewUser, User};
+use crate::models::{CommonResponse, NewUser, User, USER_COLUMNS};
 use crate::schema::users::dsl::*;
 use crate::schema::favorites;
 use crate::schema::notes;
@@ -151,7 +151,7 @@ pub async fn delete_user(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpRe
 fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let items = users
-        .select((id, nick_name, intro, image_id))
+        .select(USER_COLUMNS)
         .load::<User>(conn)
         .map_err(handler_disel_error)?;
 
@@ -176,7 +176,7 @@ fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, 
 fn get_user_info_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<UserDetailResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let user = users
-        .select((id, nick_name, intro, image_id))
+        .select(USER_COLUMNS)
         .filter(sub.eq(user_sub))
         .first::<User>(conn)
         .map_err(handler_disel_error)?;
@@ -196,7 +196,7 @@ fn get_user_info_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<UserD
 fn get_user_favorites_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<Vec<Uuid>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let user = users
-        .select((id, nick_name, intro, image_id))
+        .select(USER_COLUMNS)
         .filter(sub.eq(user_sub))
         .first::<User>(conn)
         .map_err(handler_disel_error)?;
@@ -212,7 +212,7 @@ fn get_user_favorites_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<
 fn db_get_user_info_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<UserDetailResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let user = users
-        .select((id, nick_name, intro, image_id))
+        .select(USER_COLUMNS)
         .find(user_id)
         .get_result::<User>(conn)
         .map_err(handler_disel_error)?;
@@ -277,7 +277,7 @@ pub(crate) fn register_user(
     };
     let res = insert_into(users)
         .values(&new_user)
-        .returning((id, nick_name, intro, image_id))
+        .returning(USER_COLUMNS)
         .get_result(conn)
         .map_err(handler_disel_error)?;
     Ok(res)
@@ -291,7 +291,7 @@ fn update_single_user_nick(
     let conn = &mut db.get().unwrap();
     let res = diesel::update(users.filter(sub.eq(user_sub)))
         .set(nick_name.eq(item.nick_name.as_str()))
-        .returning((id, nick_name, intro, image_id))
+        .returning(USER_COLUMNS)
         .get_result::<User>(conn)
         .map_err(handler_disel_error)?;
     Ok(res)
