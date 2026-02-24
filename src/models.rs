@@ -123,7 +123,62 @@ pub struct Note {
     pub body: Option<String>,
     pub registered: DateTime<Utc>,
     pub rating: i16,
-    pub public_scope: i16
+    pub public_scope: i16,
+    pub details: Option<serde_json::Value>,
+}
+
+pub type NoteColumns = (
+    crate::schema::notes::id,
+    crate::schema::notes::user_id,
+    crate::schema::notes::product_id,
+    crate::schema::notes::body,
+    crate::schema::notes::registered,
+    crate::schema::notes::rating,
+    crate::schema::notes::public_scope,
+    crate::schema::notes::details,
+);
+
+pub const NOTE_COLUMNS: NoteColumns = (
+    crate::schema::notes::id,
+    crate::schema::notes::user_id,
+    crate::schema::notes::product_id,
+    crate::schema::notes::body,
+    crate::schema::notes::registered,
+    crate::schema::notes::rating,
+    crate::schema::notes::public_scope,
+    crate::schema::notes::details,
+);
+
+pub type NoteSimpleColumns = (
+    crate::schema::notes::id,
+    crate::schema::notes::user_id,
+    crate::schema::notes::product_id,
+    crate::schema::notes::body,
+    crate::schema::notes::registered,
+    crate::schema::notes::rating,
+    crate::schema::notes::public_scope,
+);
+
+pub const NOTE_SIMPLE_COLUMNS: NoteSimpleColumns = (
+    crate::schema::notes::id,
+    crate::schema::notes::user_id,
+    crate::schema::notes::product_id,
+    crate::schema::notes::body,
+    crate::schema::notes::registered,
+    crate::schema::notes::rating,
+    crate::schema::notes::public_scope,
+);
+
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = notes)]
+pub struct NoteSimple {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub product_id: Uuid,
+    pub body: Option<String>,
+    pub registered: DateTime<Utc>,
+    pub rating: i16,
+    pub public_scope: i16,
 }
 
 #[derive(Insertable, Debug)]
@@ -135,7 +190,8 @@ pub struct NewNote {
     pub body: Option<String>,
     pub registered: DateTime<Utc>,
     pub rating: i16,
-    pub public_scope: i16
+    pub public_scope: i16,
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]

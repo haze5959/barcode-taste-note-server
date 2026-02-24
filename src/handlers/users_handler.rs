@@ -22,9 +22,12 @@ pub struct AddUserParams {
     pub nick_name: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SetUserNameParams {
-    pub nick_name: String,
+#[derive(Debug, Serialize, Deserialize, diesel::AsChangeset)]
+#[diesel(table_name = crate::schema::users)]
+#[diesel(treat_none_as_null = false)]
+pub struct SetUserParams {
+    pub nick_name: Option<String>,
+    pub intro: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -116,7 +119,7 @@ pub async fn add_user(
 pub async fn update_user_nick(
     req: HttpRequest,
     db: web::Data<Pool>,
-    item: web::Json<SetUserNameParams>,
+    item: web::Json<SetUserParams>,
 ) -> Result<HttpResponse, Error> {
     let user_sub = get_sub(req)?;
     let user_info =
@@ -285,12 +288,23 @@ pub(crate) fn register_user(
 
 fn update_single_user_nick(
     db: web::Data<Pool>,
-    item: web::Json<SetUserNameParams>,
+    item: web::Json<SetUserParams>,
     user_sub: &str,
 ) -> Result<User, CommonResponseError> {
     let conn = &mut db.get().unwrap();
+
+    if item.nick_name.is_none() && item.intro.is_none() {
+        let user = users
+            .select(USER_COLUMNS)
+            .filter(sub.eq(user_sub))
+            .first::<User>(conn)
+            .map_err(handler_disel_error)?;
+        return Ok(user);
+    }
+
+    let params = item.into_inner();
     let res = diesel::update(users.filter(sub.eq(user_sub)))
-        .set(nick_name.eq(item.nick_name.as_str()))
+        .set(&params)
         .returning(USER_COLUMNS)
         .get_result::<User>(conn)
         .map_err(handler_disel_error)?;

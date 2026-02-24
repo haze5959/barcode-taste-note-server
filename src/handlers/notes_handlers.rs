@@ -4,7 +4,7 @@ use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
 use crate::handlers::users_handler::register_user;
-use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, ProductLite, User};
+use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple};
 use crate::schema::{flavor_tags, notes, product_images, products, users};
 use crate::utils::auth::get_sub;
 use crate::utils::image_file::move_image_to_deleted;
@@ -25,6 +25,7 @@ pub struct CreateNoteParams {
     pub rating: i16,
     pub public_scope: i16,
     pub image_ids: Vec<Uuid>,
+    pub details: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,7 +34,8 @@ pub struct UpdateNoteParams {
     pub selected_flavors: Option<Vec<i16>>,
     pub rating: i16,
     pub public_scope: i16,
-    pub image_ids: Vec<Uuid>,
+    pub image_ids: Vec<Uuid>,   
+    pub details: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,6 +48,15 @@ pub struct NoteListQuery {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NoteResponse {
     pub note: Note,
+    pub product: Option<ProductLite>,
+    pub user: Option<User>,
+    pub image_ids: Vec<Uuid>,
+    pub flavors: Option<Vec<i16>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NoteListResponse {
+    pub note: NoteSimple,
     pub product: Option<ProductLite>,
     pub user: Option<User>,
     pub image_ids: Vec<Uuid>,
@@ -213,6 +224,7 @@ fn db_create_note(
         registered: Utc::now(),
         rating: item.rating,
         public_scope: item.public_scope,
+        details: item.details.as_deref().and_then(|d| serde_json::from_str(d).ok()),
     };
 
     let note = conn.transaction::<Note, CommonResponseError, _>(|conn| {
@@ -259,6 +271,7 @@ fn db_get_note_by_id(
 
     // 노트 조회
     let note = notes::table
+        .select(NOTE_COLUMNS)
         .find(note_id)
         .first::<Note>(conn)
         .map_err(handler_disel_error)?;
@@ -307,7 +320,7 @@ fn db_get_note_by_id(
 fn db_get_notes_list(
     pool: web::Data<Pool>,
     query: NoteListQuery,
-) -> Result<Vec<NoteResponse>, CommonResponseError> {
+) -> Result<Vec<NoteListResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     let page = query.page.unwrap_or(1);
@@ -322,11 +335,12 @@ fn db_get_notes_list(
         notes_query = notes_query.filter(notes::product_id.eq(product_id));
     }
 
-    let notes_list: Vec<Note> = notes_query
+    let notes_list: Vec<NoteSimple> = notes_query
+        .select(NOTE_SIMPLE_COLUMNS)
         .order(notes::registered.desc())
         .offset(offset)
         .limit(per)
-        .load::<Note>(conn)
+        .load::<NoteSimple>(conn)
         .map_err(handler_disel_error)?;
 
     // 각 노트에 대한 상세 정보 조회
@@ -356,7 +370,7 @@ fn db_get_notes_list(
             .load::<Uuid>(conn)
             .map_err(handler_disel_error)?;
 
-        result.push(NoteResponse {
+        result.push(NoteListResponse {
             note,
             product,
             user,
@@ -372,7 +386,7 @@ fn db_get_notes_by_user(
     pool: web::Data<Pool>,
     user_id: Uuid,
     query: NoteListQuery,
-) -> Result<Vec<NoteResponse>, CommonResponseError> {
+) -> Result<Vec<NoteListResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     let page = query.page.unwrap_or(1);
@@ -380,12 +394,13 @@ fn db_get_notes_by_user(
     let offset = (page - 1) * per;
 
     // 특정 유저의 노트 리스트 조회
-    let notes_list: Vec<Note> = notes::table
+    let notes_list: Vec<NoteSimple> = notes::table
+        .select(NOTE_SIMPLE_COLUMNS)
         .filter(notes::user_id.eq(user_id))
         .order(notes::registered.desc())
         .offset(offset)
         .limit(per)
-        .load::<Note>(conn)
+        .load::<NoteSimple>(conn)
         .map_err(handler_disel_error)?;
 
     // 각 노트에 대한 상세 정보 조회
@@ -406,7 +421,7 @@ fn db_get_notes_by_user(
             .load::<Uuid>(conn)
             .map_err(handler_disel_error)?;
 
-        result.push(NoteResponse {
+        result.push(NoteListResponse {
             note,
             product,
             user: None,
@@ -469,6 +484,8 @@ fn db_update_note(
         .cloned()
         .collect();
 
+    let parsed_details: Option<serde_json::Value> = item.details.as_deref().and_then(|d| serde_json::from_str(d).ok());
+
     let updated_note = conn.transaction::<Note, CommonResponseError, _>(|conn| {
         // 노트 업데이트
         let updated_note = diesel::update(notes::table.find(note_id))
@@ -476,6 +493,7 @@ fn db_update_note(
                 notes::body.eq(&item.body),
                 notes::rating.eq(item.rating),
                 notes::public_scope.eq(item.public_scope),
+                notes::details.eq(parsed_details.clone()),
             ))
             .get_result::<Note>(conn)?;
 
