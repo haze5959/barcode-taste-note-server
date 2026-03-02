@@ -1,6 +1,12 @@
 target/*
+static/*
+crawler/target/*
 .env
 package.json
 package-lock.json
 node_modules/*
 .vscode/*
+
+Cargo.lock
+
+crawler/failed_pages.txt

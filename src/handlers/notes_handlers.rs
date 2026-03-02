@@ -16,6 +16,8 @@ use diesel::dsl::{delete, insert_into};
 use diesel::expression_methods::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use std::collections::HashMap;
+use chrono::{Datelike, TimeZone};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CreateNoteParams {
@@ -43,9 +45,11 @@ pub struct NoteListQuery {
     pub page: Option<i64>,
     pub per: Option<i64>,
     pub product_id: Option<Uuid>,
+    pub order_by: Option<String>,
+    pub ids: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NoteResponse {
     pub note: Note,
     pub product: Option<ProductLite>,
@@ -61,6 +65,12 @@ pub struct NoteListResponse {
     pub user: Option<User>,
     pub image_ids: Vec<Uuid>,
     pub flavors: Option<Vec<i16>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NoteCalendarQuery {
+    pub year: i32,
+    pub month: u32,
 }
 
 // ============================================
@@ -145,6 +155,24 @@ pub async fn get_notes_by_user(
     let response = CommonResponse {
         result: true,
         data: notes_list,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /notes/calendar
+pub async fn get_notes_calendar(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    query: web::Query<NoteCalendarQuery>,
+) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+    let calendar_data =
+        web::block(move || db_get_notes_calendar(db, user_sub, query.into_inner()))
+            .await??;
+    let response = CommonResponse {
+        result: true,
+        data: calendar_data,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -323,12 +351,31 @@ fn db_get_notes_list(
 ) -> Result<Vec<NoteListResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
+    let mut notes_query = notes::table.into_boxed();
+
+    // ids 파라미터가 있으면 페이징 무시하고 해당 ID들만 조회
+    if let Some(ref ids_str) = query.ids {
+        let parsed_ids: Vec<Uuid> = ids_str
+            .split(',')
+            .filter_map(|s| Uuid::parse_str(s.trim()).ok())
+            .collect();
+            
+        if !parsed_ids.is_empty() {
+            notes_query = notes_query.filter(notes::id.eq_any(parsed_ids));
+            // 페이징 없이 전체 조회 (최대 100개 정도로 제한)
+            let notes_list: Vec<NoteSimple> = notes_query
+                .select(NOTE_SIMPLE_COLUMNS)
+                .order(notes::registered.desc())
+                .limit(100)
+                .load::<NoteSimple>(conn)
+                .map_err(handler_disel_error)?;
+            return build_note_list_response(conn, notes_list);
+        }
+    }
+
     let page = query.page.unwrap_or(1);
     let per = query.per.unwrap_or(10);
     let offset = (page - 1) * per;
-
-    // 노트 리스트 조회
-    let mut notes_query = notes::table.into_boxed();
 
     // product_id 필터링
     if let Some(product_id) = query.product_id {
@@ -343,6 +390,13 @@ fn db_get_notes_list(
         .load::<NoteSimple>(conn)
         .map_err(handler_disel_error)?;
 
+    build_note_list_response(conn, notes_list)
+}
+
+fn build_note_list_response(
+    conn: &mut diesel::PgConnection,
+    notes_list: Vec<NoteSimple>,
+) -> Result<Vec<NoteListResponse>, CommonResponseError> {
     // 각 노트에 대한 상세 정보 조회
     let mut result = Vec::new();
 
@@ -393,44 +447,31 @@ fn db_get_notes_by_user(
     let per = query.per.unwrap_or(10);
     let offset = (page - 1) * per;
 
-    // 특정 유저의 노트 리스트 조회
-    let notes_list: Vec<NoteSimple> = notes::table
+    // 정렬 방식 결정
+    let mut notes_query = notes::table
         .select(NOTE_SIMPLE_COLUMNS)
         .filter(notes::user_id.eq(user_id))
-        .order(notes::registered.desc())
+        .into_boxed();
+
+    match query.order_by.as_deref() {
+        Some("rating") => {
+            notes_query = notes_query.order(notes::rating.desc());
+        }
+        _ => {
+            // default: "registered"
+            notes_query = notes_query.order(notes::registered.desc());
+        }
+    }
+
+    // 특정 유저의 노트 리스트 조회
+    let notes_list: Vec<NoteSimple> = notes_query
         .offset(offset)
         .limit(per)
         .load::<NoteSimple>(conn)
         .map_err(handler_disel_error)?;
 
     // 각 노트에 대한 상세 정보 조회
-    let mut result = Vec::new();
-
-    for note in notes_list {
-        let product = products::table
-            .find(note.product_id)
-            .select((products::id, products::name, products::type_, products::rating, products::registered))
-            .first::<ProductLite>(conn)
-            .ok();
-
-        // 이미지 ID들 조회 (최대 3개)
-        let image_ids: Vec<Uuid> = product_images::table
-            .filter(product_images::note_id.eq(note.id))
-            .select(product_images::id)
-            .limit(3)
-            .load::<Uuid>(conn)
-            .map_err(handler_disel_error)?;
-
-        result.push(NoteListResponse {
-            note,
-            product,
-            user: None,
-            image_ids,
-            flavors: None,
-        });
-    }
-
-    Ok(result)
+    build_note_list_response(conn, notes_list)
 }
 
 fn db_update_note(
@@ -662,4 +703,53 @@ fn db_update_product_stats(
         .map_err(handler_disel_error)?;
 
     Ok(())
+}
+
+fn db_get_notes_calendar(
+    pool: web::Data<Pool>,
+    user_sub: String,
+    query: NoteCalendarQuery,
+) -> Result<HashMap<String, Vec<Uuid>>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    // 유저 ID 조회
+    let user_id = match users::table
+        .filter(users::sub.eq(&user_sub))
+        .select(users::id)
+        .first::<Uuid>(conn)
+    {
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
+
+    // 해당 월의 시작일과 종료일 계산 (UTC 기준)
+    let start_date = Utc.with_ymd_and_hms(query.year, query.month, 1, 0, 0, 0)
+        .single()
+        .ok_or(CommonResponseError::InvalidParameter)?;
+    
+    let next_month = if query.month == 12 { 1 } else { query.month + 1 };
+    let next_month_year = if query.month == 12 { query.year + 1 } else { query.year };
+    
+    let end_date = Utc.with_ymd_and_hms(next_month_year, next_month, 1, 0, 0, 0)
+        .single()
+        .ok_or(CommonResponseError::InvalidParameter)?;
+
+    // 해당 유저의 특정 기간 노트 조회
+    let notes_in_month = notes::table
+        .select((notes::id, notes::registered))
+        .filter(notes::user_id.eq(user_id))
+        .filter(notes::registered.ge(start_date))
+        .filter(notes::registered.lt(end_date))
+        .load::<(Uuid, chrono::DateTime<Utc>)>(conn)
+        .map_err(handler_disel_error)?;
+
+    let mut calendar_map: HashMap<String, Vec<Uuid>> = HashMap::new();
+
+    for (note_id, registered) in notes_in_month {
+        let day_str = registered.day().to_string();
+        calendar_map.entry(day_str).or_default().push(note_id);
+    }
+
+    Ok(calendar_map)
 }

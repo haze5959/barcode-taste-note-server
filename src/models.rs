@@ -1,6 +1,7 @@
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
+use pgvector::Vector;
 use crate::schema::*;
 
 // 공통
@@ -11,7 +12,7 @@ pub struct CommonResponse<DataT> {
     pub error: Option<u8>
 }
 
-#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]
 #[diesel(table_name = users)]
 pub struct User {
     pub id: Uuid,
@@ -54,6 +55,7 @@ pub struct Product {
     pub flavors: Option<serde_json::Value>,
     pub registered: DateTime<Utc>,
     pub note_count: i32,
+    pub embedding: Option<Vector>,
 }
 
 #[derive(Queryable, Serialize, Deserialize, Debug, Clone)]
@@ -76,6 +78,7 @@ pub struct NewProduct<'a> {
     pub type_: i16,
     pub desc: Option<&'a str>,
     pub registered: DateTime<Utc>,
+    pub embedding: Option<Vector>,
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]

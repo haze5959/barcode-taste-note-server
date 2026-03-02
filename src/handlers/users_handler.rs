@@ -178,11 +178,15 @@ fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, 
 
 fn get_user_info_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<UserDetailResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    let user = users
+    let user = match users
         .select(USER_COLUMNS)
-        .filter(sub.eq(user_sub))
+        .filter(sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(handler_disel_error)?;
+    {
+        Ok(user) => user,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
 
     let note_count: i64 = notes::table
         .filter(notes::user_id.eq(user.id))
@@ -198,11 +202,15 @@ fn get_user_info_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<UserD
 
 fn get_user_favorites_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<Vec<Uuid>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    let user = users
+    let user = match users
         .select(USER_COLUMNS)
-        .filter(sub.eq(user_sub))
+        .filter(sub.eq(&user_sub))
         .first::<User>(conn)
-        .map_err(handler_disel_error)?;
+    {
+        Ok(user) => user,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
 
     let favorite_product_ids: Vec<Uuid> = favorites::table
         .filter(favorites::user_id.eq(user.id))

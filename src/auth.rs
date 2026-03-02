@@ -18,7 +18,7 @@ pub async fn validator(
     req: ServiceRequest,
     credentials: BearerAuth,
 ) -> Result<ServiceRequest, (Error, ServiceRequest)> {
-    match validate_token(credentials.token()) {
+    match validate_token(credentials.token()).await {
         Ok(claims) => {
             debug!("claims {:?}", claims);
             req.extensions_mut().insert(claims.sub);
@@ -35,7 +35,7 @@ pub async fn validator(
     }
 }
 
-fn validate_token(token: &str) -> Result<Claims, CommonResponseError> {
+async fn validate_token(token: &str) -> Result<Claims, CommonResponseError> {
     debug!("===== Token Validation Started =====");
     let authority = std::env::var("AUTHORITY").expect("AUTHORITY must be set");
     let audience = std::env::var("AUDIENCE").expect("AUDIENCE must be set");
@@ -45,6 +45,7 @@ fn validate_token(token: &str) -> Result<Claims, CommonResponseError> {
         authority.as_str(),
         ".well-known/jwks.json"
     ))
+    .await
     .expect("failed to fetch jwks");
     
     let validations = vec![
@@ -95,8 +96,8 @@ fn validate_token(token: &str) -> Result<Claims, CommonResponseError> {
     Ok(claims)
 }
 
-fn fetch_jwks(uri: &str) -> Result<JWKS, Box<dyn core::error::Error>> {
-    let mut res = reqwest::get(uri)?;
-    let val = res.json::<JWKS>()?;
+async fn fetch_jwks(uri: &str) -> Result<JWKS, Box<dyn core::error::Error>> {
+    let res = reqwest::get(uri).await?;
+    let val = res.json::<JWKS>().await?;
     return Ok(val);
 }

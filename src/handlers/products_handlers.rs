@@ -11,7 +11,8 @@ use chrono::Utc;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use diesel::dsl::{count, insert_into, delete};
 use diesel::expression_methods::*;
-use diesel::Connection;
+use diesel::{Connection, OptionalExtension};
+use pgvector::VectorExpressionMethods;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -42,7 +43,7 @@ pub struct ProductDetailResponse {
     pub favorite_count: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProductListItem {
     pub product: ProductLite,
     pub image_ids: Vec<Uuid>,
@@ -63,7 +64,18 @@ pub async fn create_product(
     db: web::Data<Pool>,
     item: web::Json<CreateProductParams>,
 ) -> Result<HttpResponse, Error> {
-    let product = web::block(move || db_create_product(db, item)).await??;
+    let item_inner = item.into_inner();
+
+    // 제품 이름을 이용해 임베딩(Vector) 값 비동기 추출
+    let embedding = match crate::utils::openai::get_embedding(&item_inner.name).await {
+        Ok(vec) => Some(vec),
+        Err(e) => {
+            eprintln!("[OpenAI Embedding Error] {}", e);
+            None
+        }
+    };
+
+    let product = web::block(move || db_create_product(db, item_inner, embedding)).await??;
     let response = CommonResponse {
         result: true,
         data: product,
@@ -96,14 +108,109 @@ pub async fn get_product_by_barcode(
     db: web::Data<Pool>,
     in_barcode_id: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
-    let product_detail =
-        web::block(move || db_get_product_by_barcode(db, in_barcode_id.into_inner())).await??;
-    let response = CommonResponse {
-        result: true,
-        data: product_detail,
-        error: None,
-    };
-    Ok(HttpResponse::Ok().json(response))
+    let barcode_str = in_barcode_id.into_inner();
+    let db_clone = db.clone();
+    let bc_clone = barcode_str.clone();
+
+    let product_detail_result =
+        web::block(move || db_get_product_by_barcode(db_clone, bc_clone)).await?;
+
+    match product_detail_result {
+        Ok(detail) => {
+            let response = CommonResponse {
+                result: true,
+                data: detail,
+                error: None,
+            };
+            Ok(HttpResponse::Ok().json(response))
+        }
+        Err(crate::errors::CommonResponseError::RecordNotFound) => {
+            // Fallback to scraping barcodelookup.com
+            if let Some(scraped) = crate::utils::scraper::scrape_barcode_lookup(&barcode_str).await {
+                // 1. Download image if exists
+                let mut image_id = None;
+                if let Some(img_url) = scraped.image_url {
+                    let new_uuid = uuid::Uuid::new_v4();
+                    if crate::utils::scraper::download_image(&img_url, new_uuid).await.is_ok() {
+                        image_id = Some(new_uuid);
+                        
+                        let new_image = crate::models::NewProductImage {
+                            id: new_uuid,
+                            product_id: None,
+                            note_id: None,
+                            user_id: None,
+                            registered: chrono::Utc::now(),
+                        };
+                        let db_clone_img = db.clone();
+                        let _ = web::block(move || {
+                            let conn = &mut db_clone_img.get().unwrap();
+                            diesel::insert_into(crate::schema::product_images::table)
+                                .values(&new_image)
+                                .execute(conn)
+                        }).await;
+                    }
+                }
+
+                // 2. Generate vector embedding
+                let embedding = crate::utils::openai::get_embedding(&scraped.name).await.ok();
+
+                // 3. Create Product
+                let create_params = CreateProductParams {
+                    name: scraped.name,
+                    desc: scraped.desc,
+                    type_: scraped.type_,
+                    image_id,
+                    barcode_id: Some(barcode_str.clone()),
+                };
+
+                let db_clone_create = db.clone();
+                let created_product = web::block(move || {
+                    db_create_product(db_clone_create, create_params, embedding)
+                }).await?;
+
+                match created_product {
+                    Ok(_prod) => {
+                        // After creating, we query it again to build ProductDetailResponse
+                        let db_clone_fetch = db.clone();
+                        let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, barcode_str)).await?;
+                        match new_detail {
+                            Ok(detail) => {
+                                let response = CommonResponse {
+                                    result: true,
+                                    data: detail,
+                                    error: None,
+                                };
+                                Ok(HttpResponse::Ok().json(response))
+                            }
+                            Err(e) => {
+                                let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
+                                Ok(HttpResponse::Ok().json(response))
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
+                        Ok(HttpResponse::Ok().json(response))
+                    }
+                }
+            } else {
+                let response: CommonResponse<Option<()>> = CommonResponse {
+                    result: false,
+                    data: None,
+                    error: Some(crate::errors::CommonResponseError::RecordNotFound as u8),
+                };
+                Ok(HttpResponse::Ok().json(response))
+            }
+        }
+        Err(e) => {
+            let response: CommonResponse<Option<()>> = CommonResponse {
+                result: false,
+                data: None,
+                error: Some(e as u8),
+            };
+            Ok(HttpResponse::Ok().json(response))
+        }
+    }
 }
 
 /// Path: /products
@@ -111,7 +218,22 @@ pub async fn get_products_list(
     db: web::Data<Pool>,
     query: web::Query<ProductListQuery>,
 ) -> Result<HttpResponse, Error> {
-    let products_list = web::block(move || db_get_products_list(db, query.into_inner())).await??;
+    let query_inner = query.into_inner();
+    
+    let embedding = if let Some(ref name) = query_inner.name {
+        let translated_name = crate::utils::translator::translate_to_english_if_cjk(name).await;
+        match crate::utils::openai::get_embedding(&translated_name).await {
+            Ok(vec) => Some(vec),
+            Err(e) => {
+                eprintln!("[OpenAI Embedding Error] {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let products_list = web::block(move || db_get_products_list(db, query_inner, embedding)).await??;
     let response = CommonResponse {
         result: true,
         data: products_list,
@@ -127,7 +249,22 @@ pub async fn get_favorite_products_list(
     query: web::Query<ProductListQuery>,
 ) -> Result<HttpResponse, Error> {
     let user_sub = get_sub(req)?;
-    let products_list = web::block(move || db_get_my_favorite_products_list(db, query.into_inner(), user_sub)).await??;
+    let query_inner = query.into_inner();
+    
+    let embedding = if let Some(ref name) = query_inner.name {
+        let translated_name = crate::utils::translator::translate_to_english_if_cjk(name).await;
+        match crate::utils::openai::get_embedding(&translated_name).await {
+            Ok(vec) => Some(vec),
+            Err(e) => {
+                eprintln!("[OpenAI Embedding Error] {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let products_list = web::block(move || db_get_my_favorite_products_list(db, query_inner, user_sub, embedding)).await??;
     let response = CommonResponse {
         result: true,
         data: products_list,
@@ -158,9 +295,39 @@ pub async fn set_product_favorite(
 
 fn db_create_product(
     pool: web::Data<Pool>,
-    item: web::Json<CreateProductParams>,
+    item: CreateProductParams,
+    embedding: Option<pgvector::Vector>,
 ) -> Result<Product, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
+
+    // 동일한 이름의 제품이 있는지 확인
+    let existing_product = products::table
+        .filter(products::name.eq(&item.name))
+        .first::<Product>(conn)
+        .optional()
+        .map_err(handler_disel_error)?;
+
+    if let Some(product) = existing_product {
+        // 이미 동일한 이름의 제품이 있는 경우
+        if let Some(ref barcode_str) = item.barcode_id {
+            // barcode_id가 있다면 기존 제품에 새 바코드만 연결
+            let new_barcode = NewBarcode {
+                id: Uuid::new_v4(),
+                barcode_id: barcode_str,
+                product_id: product.id,
+            };
+
+            insert_into(barcodes::table)
+                .values(&new_barcode)
+                .execute(conn)
+                .map_err(handler_disel_error)?;
+
+            return Ok(product);
+        } else {
+            // barcode_id가 없다면 중복 에러 반환
+            return Err(CommonResponseError::DuplicatedError);
+        }
+    }
 
     let new_product_id = Uuid::new_v4();
     let new_product = NewProduct {
@@ -169,6 +336,7 @@ fn db_create_product(
         desc: item.desc.as_deref(),
         type_: item.type_,
         registered: Utc::now(),
+        embedding: embedding,
     };
 
     let product = conn.transaction::<Product, CommonResponseError, _>(|conn| {
@@ -280,6 +448,7 @@ fn db_get_product_by_barcode(
 fn db_get_products_list(
     pool: web::Data<Pool>,
     query: ProductListQuery,
+    embedding: Option<pgvector::Vector>,
 ) -> Result<Vec<ProductListItem>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
@@ -290,27 +459,31 @@ fn db_get_products_list(
     // 제품 리스트 조회
     let mut products_query = products::table.into_boxed();
 
-    // 이름 필터링
-    if let Some(name_filter) = query.name {
-        products_query = products_query.filter(products::name.like(format!("%{}%", name_filter)));
-    }
-
     // 타입 필터링
     if let Some(type_filter) = query.type_ {
         products_query = products_query.filter(products::type_.eq(type_filter));
     }
 
-    // 정렬
-    if let Some(order_by) = query.order_by {
-        if order_by == "rating" {
-            products_query = products_query.order(products::rating.desc());
+    // 이름이 있어서 벡터 검색을 수행하는 경우
+    if let Some(emb) = embedding {
+        // 관련된 결과만 나오도록 l2_distance 임계값(예: 1.0) 이하만 필터링
+        products_query = products_query.filter(products::embedding.is_not_null());
+        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(1.0));
+        products_query = products_query.order(products::embedding.l2_distance(emb));
+    } else {
+        // 일반 검색 (이름 검색어 없는 경우)
+        // 정렬
+        if let Some(order_by) = query.order_by {
+            if order_by == "rating" {
+                products_query = products_query.order(products::rating.desc());
+            } else {
+                // default: registered
+                products_query = products_query.order(products::registered.desc());
+            }
         } else {
             // default: registered
             products_query = products_query.order(products::registered.desc());
         }
-    } else {
-        // default: registered
-        products_query = products_query.order(products::registered.desc());
     }
 
     let products_list: Vec<ProductLite> = products_query
@@ -345,6 +518,7 @@ fn db_get_my_favorite_products_list(
     pool: web::Data<Pool>,
     query: ProductListQuery,
     user_sub: String,
+    embedding: Option<pgvector::Vector>,
 ) -> Result<Vec<ProductListItem>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
@@ -376,9 +550,11 @@ fn db_get_my_favorite_products_list(
         .filter(products::id.eq_any(&favorite_product_ids))
         .into_boxed();
 
-    // 이름 필터링
-    if let Some(name_filter) = query.name {
-        products_query = products_query.filter(products::name.like(format!("%{}%", name_filter)));
+    // 이름 임베딩 값이 있으면 거리 순 정렬
+    if let Some(emb) = embedding {
+        products_query = products_query.filter(products::embedding.is_not_null());
+        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(1.0));
+        products_query = products_query.order(products::embedding.l2_distance(emb));
     }
 
     let products_list: Vec<ProductLite> = products_query

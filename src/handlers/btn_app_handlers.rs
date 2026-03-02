@@ -12,15 +12,23 @@ use crate::handlers::notes_handlers::NoteResponse;
 use crate::utils::auth::get_sub;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use chrono::Utc;
+use lazy_static::lazy_static;
+use std::sync::RwLock;
+use std::time::{Instant, Duration};
 use diesel::dsl::insert_into;
 use diesel::expression_methods::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HomeResponse {
     pub recent_notes: Vec<NoteResponse>,
-    pub recent_products: Vec<ProductListItem>
+    pub recent_products: Vec<ProductListItem>,
+    pub product_count: i64,
+}
+
+lazy_static! {
+    static ref HOME_CACHE: RwLock<Option<(HomeResponse, Instant)>> = RwLock::new(None);
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -35,21 +43,50 @@ pub struct CreateReportParams {
 
 /// Path: /btn/home
 pub async fn get_home_info(db: web::Data<Pool>) -> Result<HttpResponse, Error> {
+    // 1. Check cache first (Read Lock)
+    {
+        if let Ok(cache) = HOME_CACHE.read() {
+            if let Some((cached_data, timestamp)) = &*cache {
+                // If cache is less than 10 minutes (600 seconds) old, return it
+                if timestamp.elapsed() < Duration::from_secs(600) {
+                    let response = CommonResponse {
+                        result: true,
+                        data: cached_data.clone(),
+                        error: None,
+                    };
+                    return Ok(HttpResponse::Ok().json(response));
+                }
+            }
+        }
+    }
+
+    // 2. Cache miss or expired, fetch from DB
     let db1 = db.clone();
     let db2 = db.clone();
+    let db3 = db.clone();
 
-    let (notes_list, products_list) = futures::try_join!(
+    let (notes_list, products_list, product_count) = futures::try_join!(
         web::block(move || db_get_notes_list(db1)),
         web::block(move || db_get_products_list(db2)),
+        web::block(move || db_get_product_count(db3)),
     )?;
 
     let notes_list = notes_list?;
     let products_list = products_list?;
+    let product_count = product_count?;
     
     let data = HomeResponse {
         recent_notes: notes_list,
-        recent_products: products_list
+        recent_products: products_list,
+        product_count,
     };
+
+    // 3. Update cache (Write Lock)
+    {
+        if let Ok(mut cache) = HOME_CACHE.write() {
+            *cache = Some((data.clone(), Instant::now()));
+        }
+    }
 
     let response = CommonResponse {
         result: true,
@@ -241,4 +278,12 @@ fn db_create_report(
         .map_err(handler_disel_error)?;
 
     Ok(report)
+}
+
+fn db_get_product_count(pool: web::Data<Pool>) -> Result<i64, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+    products::table
+        .count()
+        .get_result::<i64>(conn)
+        .map_err(handler_disel_error)
 }

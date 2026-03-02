@@ -49,6 +49,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     products (id) {
         id -> Uuid,
         name -> Text,
@@ -59,6 +62,7 @@ diesel::table! {
         flavors -> Nullable<Jsonb>,
         registered -> Timestamptz,
         note_count -> Int4,
+        embedding -> Nullable<Vector>,
     }
 }
 
@@ -88,10 +92,13 @@ diesel::table! {
 
 diesel::joinable!(barcodes -> products (product_id));
 diesel::joinable!(favorites -> products (product_id));
+diesel::joinable!(favorites -> users (user_id));
 diesel::joinable!(flavor_tags -> notes (note_id));
 diesel::joinable!(flavor_tags -> products (product_id));
+diesel::joinable!(notes -> users (user_id));
 diesel::joinable!(product_images -> notes (note_id));
 diesel::joinable!(product_images -> products (product_id));
+diesel::joinable!(reports -> users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     barcodes,

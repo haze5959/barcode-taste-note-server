@@ -39,6 +39,8 @@ async fn main() -> std::io::Result<()> {
             .route("/notes", web::get().to(handlers::notes_handlers::get_notes_list))
             .route("/notes/user/{id}", web::get().to(handlers::notes_handlers::get_notes_by_user))
             .route("/notes/{id}", web::get().to(handlers::notes_handlers::get_note_by_id))
+            // Images
+            .route("/images", web::get().to(handlers::images_handlers::get_images))
             // BTN APP
             .route("/btn/home", web::get().to(handlers::btn_app_handlers::get_home_info))
             // Authenticated routes
@@ -55,6 +57,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list))
                     .route("/products/favorite", web::post().to(handlers::products_handlers::set_product_favorite))
                     // Notes
+                    .route("/notes/calendar", web::get().to(handlers::notes_handlers::get_notes_calendar))
                     .route("/notes", web::post().to(handlers::notes_handlers::create_note))
                     .route("/notes/{id}", web::put().to(handlers::notes_handlers::update_note))
                     .route("/notes/{id}", web::delete().to(handlers::notes_handlers::delete_note))

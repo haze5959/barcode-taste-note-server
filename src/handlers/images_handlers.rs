@@ -24,6 +24,14 @@ pub struct ImageUploadResponse {
     pub url: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImageListQuery {
+    pub page: Option<i64>,
+    pub per: Option<i64>,
+    pub product_id: Option<Uuid>,
+    pub note_id: Option<Uuid>,
+}
+
 #[derive(Debug, MultipartForm)]
 pub struct ImageUploadForm {
     #[multipart(limit = "10MB")]
@@ -79,6 +87,24 @@ pub async fn upload_image(
 }
 
 // ============================================
+// MARK: Handler for GET
+// ============================================
+
+/// Path: /images
+pub async fn get_images(
+    db: web::Data<Pool>,
+    query: web::Query<ImageListQuery>,
+) -> Result<HttpResponse, Error> {
+    let images = web::block(move || db_get_images(db, query.into_inner())).await??;
+    let response = CommonResponse {
+        result: true,
+        data: images,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
 // MARK: Handler for DELETE
 // ============================================
 
@@ -107,6 +133,35 @@ pub async fn delete_image(
 // ============================================
 // MARK: Internal Methods
 // ============================================
+
+fn db_get_images(
+    pool: web::Data<Pool>,
+    query: ImageListQuery,
+) -> Result<Vec<Uuid>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+    let page = query.page.unwrap_or(1);
+    let per = query.per.unwrap_or(10);
+    let offset = (page - 1) * per;
+
+    let mut images_query = product_images::table.into_boxed();
+
+    if let Some(product_id) = query.product_id {
+        images_query = images_query.filter(product_images::product_id.eq(product_id));
+    }
+    if let Some(note_id) = query.note_id {
+        images_query = images_query.filter(product_images::note_id.eq(note_id));
+    }
+
+    let images_list: Vec<Uuid> = images_query
+        .select(product_images::id)
+        .order(product_images::registered.desc())
+        .offset(offset)
+        .limit(per)
+        .load::<Uuid>(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(images_list)
+}
 
 fn db_create_image_with_file(
     pool: web::Data<Pool>,
