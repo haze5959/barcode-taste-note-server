@@ -15,6 +15,8 @@ pub enum CommonResponseError {
     JWKSFetchError= 104,
     RecordNotFound = 105,
     InvalidParameter = 106,
+    ExceedMaxCount = 107,
+    FailedToAnalyzeImage = 108,
     Unknown = 255
 }
 

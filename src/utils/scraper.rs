@@ -148,7 +148,19 @@ pub async fn download_image(url: &str, image_id: uuid::Uuid) -> Result<(), Box<d
         let bytes = resp.bytes().await?;
         let path = format!("static/images/{}", image_id);
         std::fs::create_dir_all("static/images")?;
-        std::fs::write(path, bytes)?;
+        
+        if bytes.len() > 100_000 {
+            if let Ok(img) = image::load_from_memory(&bytes) {
+                let resized = img.resize(400, 400, image::imageops::FilterType::Nearest);
+                if resized.save_with_format(&path, image::ImageFormat::Jpeg).is_err() {
+                    std::fs::write(&path, bytes)?;
+                }
+            } else {
+                std::fs::write(&path, bytes)?;
+            }
+        } else {
+            std::fs::write(&path, bytes)?;
+        }
     }
     Ok(())
 }

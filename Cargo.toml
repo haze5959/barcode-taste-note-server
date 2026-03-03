@@ -30,3 +30,11 @@ async-openai = "0.26.0"
 tokio = { version = "1.49.0", features = ["fs"] }
 regex = "1.12.3"
 lazy_static = "1.5.0"
+base64 = "0.22.1"
+image = "0.25.9"
+
+[workspace]
+members = [
+    "crawler",
+    "batch"
+]

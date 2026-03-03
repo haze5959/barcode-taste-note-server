@@ -56,6 +56,7 @@ async fn main() -> std::io::Result<()> {
                     // Products
                     .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list))
                     .route("/products/favorite", web::post().to(handlers::products_handlers::set_product_favorite))
+                    .route("/products/ai", web::post().to(handlers::products_handlers::create_product_by_ai))
                     // Notes
                     .route("/notes/calendar", web::get().to(handlers::notes_handlers::get_notes_calendar))
                     .route("/notes", web::post().to(handlers::notes_handlers::create_note))

@@ -5,3 +5,5 @@ pub mod image_file;
 pub mod openai;
 pub mod scraper;
 pub mod translator;
+pub mod rate_limit;
+pub mod gemini;

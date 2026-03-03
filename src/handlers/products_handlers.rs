@@ -27,6 +27,12 @@ pub struct CreateProductParams {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct AiProductRequest {
+    pub image_id: Uuid,
+    pub barcode_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ProductListQuery {
     pub page: Option<i64>,
     pub per: Option<i64>,
@@ -76,6 +82,102 @@ pub async fn create_product(
     };
 
     let product = web::block(move || db_create_product(db, item_inner, embedding)).await??;
+    let response = CommonResponse {
+        result: true,
+        data: product,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /products/ai
+pub async fn create_product_by_ai(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    item: web::Json<AiProductRequest>,
+) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+    let item_inner = item.into_inner();
+
+    // 1. Rate Limiting Check
+    if !crate::utils::rate_limit::check_and_increment_api_usage(&user_sub, 5) {
+        let resp: CommonResponse<Option<()>> = CommonResponse {
+            result: false,
+            data: None,
+            error: Some(CommonResponseError::ExceedMaxCount as u8),
+        };
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+
+    // 2. Gemini Analysis
+    let ai_result = match crate::utils::gemini::analyze_image_with_gemini(&item_inner.image_id.to_string()).await {
+        Ok(res) => res,
+        Err(e) => {
+            eprintln!("[Gemini Error] {}", e);
+            let resp: CommonResponse<Option<()>> = CommonResponse {
+                result: false,
+                data: None,
+                error: Some(CommonResponseError::FailedToAnalyzeImage as u8),
+            };
+            return Ok(HttpResponse::Ok().json(resp));
+        }
+    };
+
+    // 3. Category Mapping
+    let tags_str = ai_result.category.to_lowercase();
+    let type_ = if tags_str.contains("whisky") || tags_str.contains("whiskies") { 0 }
+    else if tags_str.contains("wine") || tags_str.contains("wines") { 1 }
+    else if tags_str.contains("beer") || tags_str.contains("beers") { 2 }
+    else if tags_str.contains("soju") || tags_str.contains("sake") { 3 }
+    else if tags_str.contains("liqueur") || tags_str.contains("liqueurs") || tags_str.contains("spirit") || tags_str.contains("spirits") { 4 }
+    else if tags_str.contains("cocktail") || tags_str.contains("cocktails") { 5 }
+    else if tags_str.contains("coffee") || tags_str.contains("coffees") { 6 }
+    else if tags_str.contains("beverage") || tags_str.contains("beverages") { 7 }
+    else { 8 };
+
+    // 4. Vector Embedding
+    let embedding = match crate::utils::openai::get_embedding(&ai_result.name).await {
+        Ok(vec) => Some(vec),
+        Err(e) => {
+            eprintln!("[OpenAI Embedding Error For AI Model] {}", e);
+            None
+        }
+    };
+
+    // 5. DB Query & Insertion
+    let create_params = CreateProductParams {
+        name: ai_result.name,
+        desc: Some(ai_result.description),
+        type_,
+        barcode_id: item_inner.barcode_id,
+        image_id: Some(item_inner.image_id),
+    };
+
+    let db_clone = db.clone();
+    let product = web::block(move || db_create_product_by_ai(db_clone, create_params, embedding)).await??;
+
+    // 6. Download Representative Image (if provided by Gemini)
+    if let Some(ref image_url) = ai_result.image_url {
+        if !image_url.is_empty() {
+            let new_uuid = uuid::Uuid::new_v4();
+            if crate::utils::scraper::download_image(image_url, new_uuid).await.is_ok() {
+                if let Ok(mut conn) = db.get() {
+                    use diesel::prelude::*;
+                    let new_image = crate::models::NewProductImage {
+                        id: new_uuid,
+                        product_id: Some(product.id),
+                        note_id: None,
+                        user_id: None,
+                        registered: chrono::Utc::now(),
+                    };
+                    let _ = diesel::insert_into(crate::schema::product_images::table)
+                        .values(&new_image)
+                        .execute(&mut conn);
+                }
+            }
+        }
+    }
+
     let response = CommonResponse {
         result: true,
         data: product,
@@ -371,6 +473,72 @@ fn db_create_product(
     Ok(product)
 }
 
+fn db_create_product_by_ai(
+    pool: web::Data<Pool>,
+    item: CreateProductParams,
+    embedding: Option<pgvector::Vector>,
+) -> Result<Product, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let existing_product = products::table
+        .filter(products::name.eq(&item.name))
+        .first::<Product>(conn)
+        .optional()
+        .map_err(handler_disel_error)?;
+
+    if let Some(product) = existing_product {
+        // 동일한 제품이 이미 존재 시 새로 만들지 않고 바코드만 연동
+        if let Some(ref barcode_str) = item.barcode_id {
+            // 바코드 ID가 이미 존재하는지 검사 (중복 시도 방지)
+            let existing_barcode = barcodes::table
+                .filter(barcodes::barcode_id.eq(barcode_str))
+                .first::<Barcode>(conn)
+                .optional()
+                .map_err(handler_disel_error)?;
+            
+            if existing_barcode.is_none() {
+                let new_barcode = NewBarcode {
+                    id: Uuid::new_v4(),
+                    barcode_id: barcode_str,
+                    product_id: product.id,
+                };
+                insert_into(barcodes::table).values(&new_barcode).execute(conn).map_err(handler_disel_error)?;
+            }
+        }
+        return Ok(product);
+    }
+
+    // 없으면 완전 신규 생성 로직 동일하게 적용
+    let new_product_id = Uuid::new_v4();
+    let new_product = NewProduct {
+        id: new_product_id,
+        name: &item.name,
+        desc: item.desc.as_deref(),
+        type_: item.type_,
+        registered: Utc::now(),
+        embedding: embedding,
+    };
+
+    let product = conn.transaction::<Product, CommonResponseError, _>(|conn| {
+        let product = insert_into(products::table).values(&new_product).get_result::<Product>(conn)?;
+
+        if let Some(ref barcode_str) = item.barcode_id {
+            let new_barcode = NewBarcode { id: Uuid::new_v4(), barcode_id: barcode_str, product_id: new_product_id };
+            insert_into(barcodes::table).values(&new_barcode).execute(conn)?;
+        }
+
+        if let Some(image_id) = item.image_id {
+            diesel::update(product_images::table.find(image_id))
+                .set(product_images::product_id.eq(new_product_id))
+                .execute(conn)?;
+        }
+        Ok(product)
+    })?;
+
+    Ok(product)
+}
+
+
 fn db_get_product_by_id(
     pool: web::Data<Pool>,
     in_product_id: Uuid,
@@ -466,9 +634,9 @@ fn db_get_products_list(
 
     // 이름이 있어서 벡터 검색을 수행하는 경우
     if let Some(emb) = embedding {
-        // 관련된 결과만 나오도록 l2_distance 임계값(예: 1.0) 이하만 필터링
+        // 관련된 결과만 나오도록 l2_distance 임계값(예: 0.9) 이하만 필터링
         products_query = products_query.filter(products::embedding.is_not_null());
-        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(1.0));
+        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(0.9));
         products_query = products_query.order(products::embedding.l2_distance(emb));
     } else {
         // 일반 검색 (이름 검색어 없는 경우)
@@ -553,7 +721,7 @@ fn db_get_my_favorite_products_list(
     // 이름 임베딩 값이 있으면 거리 순 정렬
     if let Some(emb) = embedding {
         products_query = products_query.filter(products::embedding.is_not_null());
-        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(1.0));
+        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(0.9));
         products_query = products_query.order(products::embedding.l2_distance(emb));
     }
 
