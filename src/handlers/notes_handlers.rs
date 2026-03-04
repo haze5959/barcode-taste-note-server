@@ -54,7 +54,7 @@ pub struct NoteResponse {
     pub note: Note,
     pub product: Option<ProductLite>,
     pub user: Option<User>,
-    pub image_ids: Vec<Uuid>,
+    pub image_ids: Option<Vec<Uuid>>,
     pub flavors: Option<Vec<i16>>,
 }
 
@@ -63,7 +63,7 @@ pub struct NoteListResponse {
     pub note: NoteSimple,
     pub product: Option<ProductLite>,
     pub user: Option<User>,
-    pub image_ids: Vec<Uuid>,
+    pub image_ids: Option<Vec<Uuid>>,
     pub flavors: Option<Vec<i16>>,
 }
 
@@ -317,11 +317,29 @@ fn db_get_note_by_id(
         .ok();
 
     // 이미지 ID들 조회
-    let image_ids: Vec<Uuid> = product_images::table
+    let mut image_ids_vec: Vec<Uuid> = product_images::table
         .filter(product_images::note_id.eq(note_id))
         .select(product_images::id)
         .load::<Uuid>(conn)
         .map_err(handler_disel_error)?;
+
+    if image_ids_vec.is_empty() {
+        if let Some(id) = product_images::table
+            .filter(product_images::note_id.is_null())
+            .filter(product_images::product_id.eq(note.product_id))
+            .select(product_images::id)
+            .first::<Uuid>(conn)
+            .ok()
+        {
+            image_ids_vec.push(id);
+        }
+    }
+
+    let image_ids = if image_ids_vec.is_empty() {
+        None
+    } else {
+        Some(image_ids_vec)
+    };
 
     // 해당 노트의 flavor_tags에서 flavor 값 리스트 조회
     let flavor_values: Vec<i16> = flavor_tags::table
@@ -417,12 +435,30 @@ fn build_note_list_response(
             .ok();
 
         // 이미지 ID들 조회 (최대 3개)
-        let image_ids: Vec<Uuid> = product_images::table
+        let mut image_ids_vec: Vec<Uuid> = product_images::table
             .filter(product_images::note_id.eq(note.id))
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)
             .map_err(handler_disel_error)?;
+
+        if image_ids_vec.is_empty() {
+            if let Some(id) = product_images::table
+                .filter(product_images::note_id.is_null())
+                .filter(product_images::product_id.eq(note.product_id))
+                .select(product_images::id)
+                .first::<Uuid>(conn)
+                .ok()
+            {
+                image_ids_vec.push(id);
+            }
+        }
+
+        let image_ids = if image_ids_vec.is_empty() {
+            None
+        } else {
+            Some(image_ids_vec)
+        };
 
         result.push(NoteListResponse {
             note,
@@ -662,6 +698,7 @@ fn db_update_product_stats(
 
     // 1. 제품 정보 조회
     let product = products::table
+        .select(crate::models::PRODUCT_COLUMNS)
         .find(product_id)
         .first::<Product>(conn)
         .map_err(handler_disel_error)?;
@@ -681,7 +718,7 @@ fn db_update_product_stats(
         ((old_count as f32 * old_rating) + new_rating as f32) / note_count_from_db as f32;
 
     // 4. Flavors 업데이트
-    let mut current_flavors_json = product.flavors.unwrap_or(serde_json::json!({}));
+    let mut current_flavors_json = product.flavor_infos.unwrap_or(serde_json::json!({}));
     if let Some(flavors) = new_flavors {
         if let Some(obj) = current_flavors_json.as_object_mut() {
             for flavor_id in flavors {
@@ -697,7 +734,7 @@ fn db_update_product_stats(
         .set((
             products::rating.eq(new_avg_rating),
             products::note_count.eq(note_count_from_db as i32),
-            products::flavors.eq(current_flavors_json),
+            products::flavor_infos.eq(current_flavors_json),
         ))
         .execute(conn)
         .map_err(handler_disel_error)?;

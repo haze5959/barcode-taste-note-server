@@ -33,9 +33,13 @@ fn clean_product_name(name: &str) -> String {
     let re_abv = RE_ABV.get_or_init(|| Regex::new(r"(?i)\d+(\.\d+)?\s*%\s*(vol\.?)?").unwrap());
     cleaned = re_abv.replace_all(&cleaned, " ").to_string();
     
-    static RE_VOL: OnceLock<Regex> = OnceLock::new();
-    let re_vol = RE_VOL.get_or_init(|| Regex::new(r"(?i)\b\d+(\.\d+)?\s*(ml|cl|l|liter|liters|litre|litres)\b").unwrap());
-    cleaned = re_vol.replace_all(&cleaned, " ").to_string();
+    static RE_MEASURE: OnceLock<Regex> = OnceLock::new();
+    let re_measure = RE_MEASURE.get_or_init(|| Regex::new(r"(?i)\b\d+(\.\d+)?\s*(ml|cl|l|liter|liters|litre|litres|g|kg|mg|oz|fl\.?\s*oz|lb|lbs)\b").unwrap());
+    cleaned = re_measure.replace_all(&cleaned, " ").to_string();
+    
+    static RE_QTY: OnceLock<Regex> = OnceLock::new();
+    let re_qty = RE_QTY.get_or_init(|| Regex::new(r"(?i)\b(x\s*\d+\s*(pcs|pack|packs|ea)?|\d+\s*(pcs|pack|packs|ea|bottles|cans))\b").unwrap());
+    cleaned = re_qty.replace_all(&cleaned, " ").to_string();
     
     static RE_SPAM: OnceLock<Regex> = OnceLock::new();
     let re_spam = RE_SPAM.get_or_init(|| Regex::new(r"(?i)\b(empty|can only|no drink|used)\b").unwrap());
@@ -145,22 +149,22 @@ pub async fn download_image(url: &str, image_id: uuid::Uuid) -> Result<(), Box<d
     let client = reqwest::Client::new();
     let resp = client.get(url).send().await?;
     if resp.status().is_success() {
-        let bytes = resp.bytes().await?;
-        let path = format!("static/images/{}", image_id);
-        std::fs::create_dir_all("static/images")?;
-        
-        if bytes.len() > 100_000 {
+    let bytes = resp.bytes().await?;
+    let path = format!("static/images/{}", image_id);
+    std::fs::create_dir_all("static/images")?;
+    
+    if bytes.len() > 100_000 {
             if let Ok(img) = image::load_from_memory(&bytes) {
-                let resized = img.resize(400, 400, image::imageops::FilterType::Nearest);
+        let resized = img.resize(400, 400, image::imageops::FilterType::Nearest);
                 if resized.save_with_format(&path, image::ImageFormat::Jpeg).is_err() {
                     std::fs::write(&path, bytes)?;
                 }
-            } else {
+    } else {
                 std::fs::write(&path, bytes)?;
             }
         } else {
             std::fs::write(&path, bytes)?;
-        }
+    }
     }
     Ok(())
 }

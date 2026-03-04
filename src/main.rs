@@ -69,6 +69,16 @@ async fn main() -> std::io::Result<()> {
                     .route("/btn/report", web::get().to(handlers::btn_app_handlers::get_my_reports))
                     .route("/btn/report", web::post().to(handlers::btn_app_handlers::create_report))
             )
+            .service(
+                web::scope("admin")
+                    .wrap(HttpAuthentication::bearer(auth::validator))
+                    .route("/report", web::get().to(handlers::admin_handlers::get_reports))
+                    .route("/report", web::put().to(handlers::admin_handlers::update_admin_report))
+                    .route("/product", web::get().to(handlers::admin_handlers::get_admin_product))
+                    .route("/product", web::put().to(handlers::admin_handlers::update_admin_product))
+                    .route("/product/merge", web::post().to(handlers::admin_handlers::merge_admin_product))
+                    .route("/image", web::post().to(handlers::admin_handlers::upload_admin_image))
+            )
     })
     .bind("172.30.1.21:5959")?
     .run()

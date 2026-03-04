@@ -1,6 +1,9 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     barcodes (id) {
         id -> Uuid,
         barcode_id -> Text,
@@ -9,6 +12,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     favorites (id) {
         id -> Uuid,
         product_id -> Uuid,
@@ -17,6 +23,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     flavor_tags (id) {
         id -> Uuid,
         flavor -> Int2,
@@ -26,6 +35,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     notes (id) {
         id -> Uuid,
         user_id -> Uuid,
@@ -39,6 +51,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     product_images (id) {
         id -> Uuid,
         product_id -> Nullable<Uuid>,
@@ -59,7 +74,7 @@ diesel::table! {
         type_ -> Int2,
         desc -> Nullable<Text>,
         rating -> Nullable<Float4>,
-        flavors -> Nullable<Jsonb>,
+        flavor_infos -> Nullable<Jsonb>,
         registered -> Timestamptz,
         note_count -> Int4,
         embedding -> Nullable<Vector>,
@@ -67,6 +82,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     reports (id) {
         id -> Uuid,
         product_id -> Nullable<Uuid>,
@@ -81,6 +99,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     users (id) {
         id -> Uuid,
         nick_name -> Text,

@@ -27,10 +27,14 @@ fn clean_product_name(name: &str) -> String {
     static RE_ABV: OnceLock<Regex> = OnceLock::new();
     let re_abv = RE_ABV.get_or_init(|| Regex::new(r"(?i)\d+(\.\d+)?\s*%\s*(vol\.?)?").unwrap());
     cleaned = re_abv.replace_all(&cleaned, " ").to_string();
+
+    static RE_MEASURE: OnceLock<Regex> = OnceLock::new();
+    let re_measure = RE_MEASURE.get_or_init(|| Regex::new(r"(?i)\b\d+(\.\d+)?\s*(ml|cl|l|liter|liters|litre|litres|g|kg|mg|oz|fl\.?\s*oz|lb|lbs)\b").unwrap());
+    cleaned = re_measure.replace_all(&cleaned, " ").to_string();
     
-    static RE_VOL: OnceLock<Regex> = OnceLock::new();
-    let re_vol = RE_VOL.get_or_init(|| Regex::new(r"(?i)\b\d+(\.\d+)?\s*(ml|cl|l|liter|liters|litre|litres)\b").unwrap());
-    cleaned = re_vol.replace_all(&cleaned, " ").to_string();
+    static RE_QTY: OnceLock<Regex> = OnceLock::new();
+    let re_qty = RE_QTY.get_or_init(|| Regex::new(r"(?i)\b(x\s*\d+\s*(pcs|pack|packs|ea)?|\d+\s*(pcs|pack|packs|ea|bottles|cans))\b").unwrap());
+    cleaned = re_qty.replace_all(&cleaned, " ").to_string();
     
     static RE_SPACES: OnceLock<Regex> = OnceLock::new();
     let re_spaces = RE_SPACES.get_or_init(|| Regex::new(r"\s{2,}").unwrap());

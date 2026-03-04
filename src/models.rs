@@ -52,11 +52,32 @@ pub struct Product {
     pub type_: i16,
     pub desc: Option<String>,
     pub rating: Option<f32>,
-    pub flavors: Option<serde_json::Value>,
+    pub flavor_infos: Option<serde_json::Value>,
     pub registered: DateTime<Utc>,
     pub note_count: i32,
-    pub embedding: Option<Vector>,
 }
+
+pub type ProductColumns = (
+    crate::schema::products::id,
+    crate::schema::products::name,
+    crate::schema::products::type_,
+    crate::schema::products::desc,
+    crate::schema::products::rating,
+    crate::schema::products::flavor_infos,
+    crate::schema::products::registered,
+    crate::schema::products::note_count,
+);
+
+pub const PRODUCT_COLUMNS: ProductColumns = (
+    crate::schema::products::id,
+    crate::schema::products::name,
+    crate::schema::products::type_,
+    crate::schema::products::desc,
+    crate::schema::products::rating,
+    crate::schema::products::flavor_infos,
+    crate::schema::products::registered,
+    crate::schema::products::note_count,
+);
 
 #[derive(Queryable, Serialize, Deserialize, Debug, Clone)]
 #[diesel(table_name = products)]

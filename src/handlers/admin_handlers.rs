@@ -1,0 +1,336 @@
+use crate::Pool;
+use crate::diesel::QueryDsl;
+use crate::diesel::RunQueryDsl;
+use crate::errors::CommonResponseError;
+use crate::errors::handler_disel_error;
+use crate::models::{CommonResponse, Product, Report};
+use crate::schema::{barcodes, favorites, flavor_tags, notes, product_images, products, reports};
+use crate::utils::auth::get_sub;
+use crate::utils::openai::get_embedding;
+
+use actix_multipart::form::{MultipartForm, tempfile::TempFile, text::Text};
+use actix_web::{Error, HttpRequest, HttpResponse, web};
+use diesel::Connection;
+use diesel::ExpressionMethods;
+use pgvector::Vector;
+use serde::{Deserialize, Serialize};
+use std::io::Read;
+use uuid::Uuid;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminProductResponse {
+    pub product: Product,
+    pub main_image_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminProductQuery {
+    pub product_id: Uuid,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminUpdateProductParams {
+    pub product_id: Uuid,
+    pub name: Option<String>,
+    pub desc: Option<String>,
+    #[serde(rename = "type")]
+    pub type_: Option<i16>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminUpdateReportParams {
+    pub id: Uuid,
+    pub reply: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminMergeProductParams {
+    pub product_id: Uuid,
+    pub to_product_id: Uuid,
+}
+
+#[derive(Debug, MultipartForm)]
+pub struct AdminImageUploadForm {
+    #[multipart(limit = "1MB")]
+    pub image: TempFile,
+    pub image_id: Text<String>,
+}
+
+fn validate_admin(req: &HttpRequest) -> Result<(), CommonResponseError> {
+    let user_sub = get_sub(req.clone()).map_err(|_| CommonResponseError::AuthValidationFail)?;
+    let admin_sub = std::env::var("ADMIN_SUB").unwrap_or_default();
+    if user_sub != admin_sub {
+        return Err(CommonResponseError::AuthValidationFail);
+    }
+    Ok(())
+}
+
+// ============================================
+// MARK: GET /admin/report
+// ============================================
+pub async fn get_reports(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let reports_list = web::block(move || db_get_pending_reports(db)).await??;
+    
+    let response = CommonResponse {
+        result: true,
+        data: reports_list,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+fn db_get_pending_reports(pool: web::Data<Pool>) -> Result<Vec<Report>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+    
+    let list = reports::table
+        .filter(reports::state.eq(0))
+        .load::<Report>(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(list)
+}
+
+// ============================================
+// MARK: GET /admin/product
+// ============================================
+pub async fn get_admin_product(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    query: web::Query<AdminProductQuery>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let product_data = web::block(move || db_get_admin_product(db, query.product_id)).await??;
+    
+    let response = CommonResponse {
+        result: true,
+        data: product_data,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+fn db_get_admin_product(pool: web::Data<Pool>, product_id: Uuid) -> Result<AdminProductResponse, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let product = products::table
+        .select(crate::models::PRODUCT_COLUMNS)
+        .find(product_id)
+        .first::<Product>(conn)
+        .map_err(handler_disel_error)?;
+
+    let main_image_id = product_images::table
+        .filter(product_images::product_id.eq(product_id))
+        .filter(product_images::note_id.is_null())
+        .select(product_images::id)
+        .first::<Uuid>(conn)
+        .ok();
+
+    Ok(AdminProductResponse {
+        product,
+        main_image_id,
+    })
+}
+
+// ============================================
+// MARK: PUT /admin/product
+// ============================================
+pub async fn update_admin_product(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    item: web::Json<AdminUpdateProductParams>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let product_id = item.product_id;
+    let name = item.name.clone();
+    let desc = item.desc.clone();
+    let type_ = item.type_;
+
+    // 임베딩 갱신 필요 여부
+    let new_embedding = if let Some(ref new_name) = name {
+        get_embedding(new_name).await.ok()
+    } else {
+        None
+    };
+
+    let updated_product = web::block(move || {
+        db_update_admin_product(db, product_id, name, desc, type_, new_embedding)
+    })
+    .await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: updated_product,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+#[derive(diesel::AsChangeset)]
+#[diesel(table_name = products)]
+struct AdminProductChangeset {
+    name: Option<String>,
+    desc: Option<String>,
+    #[diesel(column_name = type_)]
+    type_: Option<i16>,
+    embedding: Option<Vector>,
+}
+
+fn db_update_admin_product(
+    pool: web::Data<Pool>,
+    product_id: Uuid,
+    name: Option<String>,
+    desc: Option<String>,
+    type_: Option<i16>,
+    new_embedding: Option<Vector>,
+) -> Result<Product, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let changeset = AdminProductChangeset {
+        name,
+        desc,
+        type_,
+        embedding: new_embedding,
+    };
+
+    let updated_product = conn.transaction::<Product, CommonResponseError, _>(|conn| {
+        let result = diesel::update(products::table.find(product_id))
+            .set(&changeset)
+            .returning(crate::models::PRODUCT_COLUMNS)
+            .get_result::<Product>(conn)
+            .map_err(handler_disel_error)?;
+        
+        Ok(result)
+    })?;
+
+    Ok(updated_product)
+}
+
+// ============================================
+// MARK: PUT /admin/report
+// ============================================
+pub async fn update_admin_report(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    item: web::Json<AdminUpdateReportParams>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let updated_report = web::block(move || {
+        let conn = &mut db.get().unwrap();
+        diesel::update(reports::table.find(item.id))
+            .set((
+                reports::reply.eq(&item.reply),
+                reports::state.eq(1),
+            ))
+            .get_result::<Report>(conn)
+            .map_err(handler_disel_error)
+    })
+    .await??;
+
+    Ok(HttpResponse::Ok().json(updated_report))
+}
+
+// ============================================
+// MARK: POST /admin/product/merge
+// ============================================
+pub async fn merge_admin_product(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    item: web::Json<AdminMergeProductParams>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    web::block(move || {
+        let conn = &mut db.get().unwrap();
+        conn.transaction::<(), diesel::result::Error, _>(|conn| {
+            diesel::update(barcodes::table.filter(barcodes::product_id.eq(item.product_id)))
+                .set(barcodes::product_id.eq(item.to_product_id))
+                .execute(conn)?;
+                
+            diesel::update(product_images::table.filter(product_images::product_id.eq(item.product_id)))
+                .set(product_images::product_id.eq(item.to_product_id))
+                .execute(conn)?;
+                
+            diesel::update(favorites::table.filter(favorites::product_id.eq(item.product_id)))
+                .set(favorites::product_id.eq(item.to_product_id))
+                .execute(conn)?;
+                
+            diesel::update(notes::table.filter(notes::product_id.eq(item.product_id)))
+                .set(notes::product_id.eq(item.to_product_id))
+                .execute(conn)?;
+                
+            diesel::update(flavor_tags::table.filter(flavor_tags::product_id.eq(item.product_id)))
+                .set(flavor_tags::product_id.eq(item.to_product_id))
+                .execute(conn)?;
+                
+            diesel::delete(products::table.find(item.product_id))
+                .execute(conn)?;
+                
+            Ok(())
+        }).map_err(handler_disel_error)
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: POST /admin/image
+// ============================================
+pub async fn upload_admin_image(
+    req: HttpRequest,
+    MultipartForm(form): MultipartForm<AdminImageUploadForm>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let image_id_str = form.image_id.0.clone();
+    let image_id = Uuid::parse_str(&image_id_str)
+        .map_err(|_| CommonResponseError::InvalidParameter)?;
+
+    let temp_file_path = form.image.file.path();
+    let mut image_file = std::fs::File::open(temp_file_path).map_err(|e| {
+        eprintln!("Failed to open temp file: {}", e);
+        actix_web::error::ErrorInternalServerError("Failed to read uploaded file")
+    })?;
+
+    let mut image_bytes = Vec::new();
+    image_file.read_to_end(&mut image_bytes).map_err(|e| {
+        eprintln!("Failed to read temp file: {}", e);
+        actix_web::error::ErrorInternalServerError("Failed to read uploaded file")
+    })?;
+
+    web::block(move || {
+        let path = format!("static/images/{}", image_id);
+        std::fs::create_dir_all("static/images").map_err(|e| e.to_string())?;
+        
+        // Validate and normalize image to JPEG
+        let img = image::load_from_memory(&image_bytes)
+            .map_err(|e| format!("Invalid image file: {}", e))?;
+            
+        img.save_with_format(&path, image::ImageFormat::Jpeg)
+            .map_err(|e| format!("Failed to save image as JPEG: {}", e))?;
+            
+        Ok::<(), String>(())
+    })
+    .await?
+    .map_err(|e| actix_web::error::ErrorBadRequest(e))?;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}

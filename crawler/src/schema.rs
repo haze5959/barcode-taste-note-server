@@ -27,7 +27,7 @@ diesel::table! {
         type_ -> Int2,
         desc -> Nullable<Text>,
         rating -> Nullable<Float4>,
-        flavors -> Nullable<Jsonb>,
+        flavor_infos -> Nullable<Jsonb>,
         registered -> Timestamptz,
         note_count -> Int4,
         embedding -> Nullable<Vector>,

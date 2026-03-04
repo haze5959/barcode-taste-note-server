@@ -34,7 +34,7 @@ pub struct ImageListQuery {
 
 #[derive(Debug, MultipartForm)]
 pub struct ImageUploadForm {
-    #[multipart(limit = "10MB")]
+    #[multipart(limit = "1MB")]
     pub image: TempFile,
     pub id: Text<String>,
     pub product_id: Option<Text<String>>,

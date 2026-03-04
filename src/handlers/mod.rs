@@ -3,3 +3,4 @@ pub mod products_handlers;
 pub mod notes_handlers;
 pub mod images_handlers;
 pub mod btn_app_handlers;
+pub mod admin_handlers;

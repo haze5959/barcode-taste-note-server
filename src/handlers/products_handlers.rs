@@ -100,7 +100,7 @@ pub async fn create_product_by_ai(
     let item_inner = item.into_inner();
 
     // 1. Rate Limiting Check
-    if !crate::utils::rate_limit::check_and_increment_api_usage(&user_sub, 5) {
+    if !crate::utils::rate_limit::check_and_increment_api_usage(&user_sub, 10) {
         let resp: CommonResponse<Option<()>> = CommonResponse {
             result: false,
             data: None,
@@ -150,7 +150,7 @@ pub async fn create_product_by_ai(
         desc: Some(ai_result.description),
         type_,
         barcode_id: item_inner.barcode_id,
-        image_id: Some(item_inner.image_id),
+        image_id: None,
     };
 
     let db_clone = db.clone();
@@ -160,19 +160,24 @@ pub async fn create_product_by_ai(
     if let Some(ref image_url) = ai_result.image_url {
         if !image_url.is_empty() {
             let new_uuid = uuid::Uuid::new_v4();
-            if crate::utils::scraper::download_image(image_url, new_uuid).await.is_ok() {
-                if let Ok(mut conn) = db.get() {
-                    use diesel::prelude::*;
-                    let new_image = crate::models::NewProductImage {
-                        id: new_uuid,
-                        product_id: Some(product.id),
-                        note_id: None,
-                        user_id: None,
-                        registered: chrono::Utc::now(),
-                    };
-                    let _ = diesel::insert_into(crate::schema::product_images::table)
-                        .values(&new_image)
-                        .execute(&mut conn);
+            match crate::utils::scraper::download_image(image_url, new_uuid).await {
+                Ok(_) => {
+                    if let Ok(mut conn) = db.get() {
+                        use diesel::prelude::*;
+                        let new_image = crate::models::NewProductImage {
+                            id: new_uuid,
+                            product_id: Some(product.id),
+                            note_id: None,
+                            user_id: None,
+                            registered: chrono::Utc::now(),
+                        };
+                        let _ = diesel::insert_into(crate::schema::product_images::table)
+                            .values(&new_image)
+                            .execute(&mut conn);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[Gemini Image Download Error] {}", e);
                 }
             }
         }
@@ -404,6 +409,7 @@ fn db_create_product(
 
     // 동일한 이름의 제품이 있는지 확인
     let existing_product = products::table
+        .select(crate::models::PRODUCT_COLUMNS)
         .filter(products::name.eq(&item.name))
         .first::<Product>(conn)
         .optional()
@@ -445,6 +451,7 @@ fn db_create_product(
         // product insert
         let product = insert_into(products::table)
             .values(&new_product)
+            .returning(crate::models::PRODUCT_COLUMNS)
             .get_result::<Product>(conn)?;
 
         // barcode_id가 제공된 경우 바코드 생성
@@ -481,6 +488,7 @@ fn db_create_product_by_ai(
     let conn = &mut pool.get().unwrap();
 
     let existing_product = products::table
+        .select(crate::models::PRODUCT_COLUMNS)
         .filter(products::name.eq(&item.name))
         .first::<Product>(conn)
         .optional()
@@ -520,18 +528,13 @@ fn db_create_product_by_ai(
     };
 
     let product = conn.transaction::<Product, CommonResponseError, _>(|conn| {
-        let product = insert_into(products::table).values(&new_product).get_result::<Product>(conn)?;
+        let product = insert_into(products::table).values(&new_product).returning(crate::models::PRODUCT_COLUMNS).get_result::<Product>(conn)?;
 
         if let Some(ref barcode_str) = item.barcode_id {
             let new_barcode = NewBarcode { id: Uuid::new_v4(), barcode_id: barcode_str, product_id: new_product_id };
             insert_into(barcodes::table).values(&new_barcode).execute(conn)?;
         }
 
-        if let Some(image_id) = item.image_id {
-            diesel::update(product_images::table.find(image_id))
-                .set(product_images::product_id.eq(new_product_id))
-                .execute(conn)?;
-        }
         Ok(product)
     })?;
 
@@ -547,6 +550,7 @@ fn db_get_product_by_id(
 
     // 제품 조회
     let product = products::table
+        .select(crate::models::PRODUCT_COLUMNS)
         .find(in_product_id)
         .first::<Product>(conn)
         .map_err(handler_disel_error)?;
@@ -588,6 +592,7 @@ fn db_get_product_by_barcode(
 
     // 제품 조회
     let product = products::table
+        .select(crate::models::PRODUCT_COLUMNS)
         .find(product_id)
         .first::<Product>(conn)
         .map_err(handler_disel_error)?;
