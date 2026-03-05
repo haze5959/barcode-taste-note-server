@@ -9,7 +9,7 @@ pub struct ScrapedProduct {
     pub image_url: Option<String>,
 }
 
-fn parse_category(tags_str: &str) -> i16 {
+pub fn parse_category(tags_str: &str) -> i16 {
     let lower = tags_str.to_lowercase();
     if lower.contains("whisky") || lower.contains("whiskies") || lower.contains("whiskey") { return 0; }
     if lower.contains("wine") || lower.contains("wines") { return 1; }
@@ -42,15 +42,15 @@ fn clean_product_name(name: &str) -> String {
     cleaned = re_qty.replace_all(&cleaned, " ").to_string();
     
     static RE_SPAM: OnceLock<Regex> = OnceLock::new();
-    let re_spam = RE_SPAM.get_or_init(|| Regex::new(r"(?i)\b(empty|can only|no drink|used)\b").unwrap());
+    let re_spam = RE_SPAM.get_or_init(|| Regex::new(r"(?i)\b(empty|can only|no drink|used|aluminum|pull tab|beer can|from \d{4})\b").unwrap());
     cleaned = re_spam.replace_all(&cleaned, " ").to_string();
     
     static RE_SPACES: OnceLock<Regex> = OnceLock::new();
     let re_spaces = RE_SPACES.get_or_init(|| Regex::new(r"\s{2,}").unwrap());
     cleaned = re_spaces.replace_all(&cleaned, " ").to_string();
     
-    // Remove trailing commas, hyphens or spaces
-    cleaned.trim().trim_end_matches(&[',', '-', ' '][..]).trim().to_string()
+    // Remove trailing commas, hyphens, spaces, or dots
+    cleaned.trim().trim_end_matches(&[',', '-', ' ', '.'][..]).trim().to_string()
 }
 
 
@@ -104,25 +104,11 @@ pub async fn scrape_barcode_lookup(barcode: &str) -> Option<ScrapedProduct> {
         return None; 
     }
 
-    // Extract Type
-    static RE_CAT: OnceLock<Regex> = OnceLock::new();
-    let re_cat = RE_CAT.get_or_init(|| Regex::new(r"(?s)Category:\s*<span class=.product-text.>(.*?)</span>").unwrap());
-    
-    let type_ = if let Some(cap) = re_cat.captures(&html) {
-        parse_category(&cap[1])
+    // Extract Type and Description using Gemini
+    let (type_, desc) = if let Some(info) = crate::utils::gemini::generate_product_info_with_gemini(&name).await {
+        (parse_category(&info.category), Some(info.description))
     } else {
-        8 // Default to "other"
-    };
-
-    // Extract Description
-    static RE_DESC: OnceLock<Regex> = OnceLock::new();
-    let re_desc = RE_DESC.get_or_init(|| Regex::new(r"(?s)Description:(?:(?:&nbsp;)|(?:&#160;)|\s)*<span class=.product-text.>(.*?)</span>").unwrap());
-    
-    let desc = if let Some(cap) = re_desc.captures(&html) {
-        let d = cap[1].trim();
-        if d.is_empty() { None } else { Some(d.replace("&quot;", "\"").replace("&amp;", "&")) }
-    } else {
-        None
+        (8, None)
     };
 
     // Extract Image URL
@@ -148,23 +134,29 @@ pub async fn scrape_barcode_lookup(barcode: &str) -> Option<ScrapedProduct> {
 pub async fn download_image(url: &str, image_id: uuid::Uuid) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let resp = client.get(url).send().await?;
-    if resp.status().is_success() {
+    
+    if !resp.status().is_success() {
+        return Err(format!("Download failed with status: {}", resp.status()).into());
+    }
+
     let bytes = resp.bytes().await?;
+    
+    // Validate that the bytes represent a valid image
+    let img = image::load_from_memory(&bytes).map_err(|e| {
+        format!("Invalid image file from {}: {}", url, e)
+    })?;
+
     let path = format!("static/images/{}", image_id);
     std::fs::create_dir_all("static/images")?;
     
+    // If it's a large image, resize it to 400x400
     if bytes.len() > 100_000 {
-            if let Ok(img) = image::load_from_memory(&bytes) {
         let resized = img.resize(400, 400, image::imageops::FilterType::Nearest);
-                if resized.save_with_format(&path, image::ImageFormat::Jpeg).is_err() {
-                    std::fs::write(&path, bytes)?;
-                }
+        resized.save_with_format(&path, image::ImageFormat::Jpeg)?;
     } else {
-                std::fs::write(&path, bytes)?;
-            }
-        } else {
-            std::fs::write(&path, bytes)?;
+        // Save as JPEG to standardize format
+        img.save_with_format(&path, image::ImageFormat::Jpeg)?;
     }
-    }
+
     Ok(())
 }

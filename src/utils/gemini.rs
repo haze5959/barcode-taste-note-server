@@ -3,7 +3,6 @@ use std::env;
 use std::path::PathBuf;
 use tokio::fs;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use chrono::Local;
 use tokio::io::AsyncWriteExt;
 
 #[derive(Serialize)]
@@ -66,14 +65,17 @@ pub async fn analyze_image_with_gemini(image_id_str: &str) -> Result<GeminiProdu
         let image_bytes = fs::read(&path).await.map_err(|e| format!("Failed to read image at {:?}: {}", path, e))?;
         let base64_image = STANDARD.encode(image_bytes);
 
-        let prompt = "Analyze the provided image and correctly identify the precise alcoholic beverage product name (including any variants/editions). \
-        Return its exact English name. Provide a brief English description of the product itself (including brand, ABV/alcohol content, aging years if available, and key characteristics) strictly under 200 characters. \
-        Identify the category as strictly one of: whisky, wine, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage. \
-        Also, find and provide a direct public URL for a high-quality, professional image of this specific product. \
-        IMPORTANT: Your `image_url` must be the most representative and high-quality image result as found on Google Image Search. Prioritize professional studio photography showing the bottle clearly. \
-        If no appropriate image is found, you may omit the `image_url` field. \
+        let prompt = "Analyze the provided image and identify the alcoholic beverage or F&B product. \
+        IMPORTANT RULES: \
+        1. If the item in the image is clearly NOT a food, beverage, or alcoholic product, you MUST stop and return strictly this JSON: {\"error\": \"Not an F&B product\"}. \
+        2. For the `name`, determine the core English product name ONLY. You MUST EXCLUDE any promotional subtitles, limited edition markers, seasonal artwork edition names, or capacity variants (e.g., if it is 'Suntory Royal Blended Whisky Sakura Blossom Limited Edition', return strictly 'Suntory Royal Blended Whisky'). \
+        3. Provides a professional English description of the product using your extensive knowledge base. Include the brand, standard ABV, specific production methods (e.g., first press malt, aging types), and key flavor markers. \
+        STRICTLY UNDER 200 characters. USE factual, encyclopedia-style language. \
+        Avoid empty fillers or speculative hedges. For well-known products, you MUST include standard market specifications. \
+        4. Identify the category as strictly one of: whisky, wine, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage. \
+        5. For `image_url`, search Google Images and provide a highly reliable, direct public link (e.g., ending in .jpg or .png) to a professional studio photo of the bottle. Do not provide a webpage URL; it must be a direct image source. If a reliable image link cannot be found, omit the `image_url` field. \
         Return strictly in JSON format matching this structure: {\"name\": \"...\", \"description\": \"...\", \"category\": \"...\", \"image_url\": \"...\"} \
-        The `name` and `category` fields are mandatory.";
+        Unless Rule 1 applies, the `name`, `description`, and `category` fields are mandatory.";
 
         let request_body = GeminiRequest {
             contents: vec![Content {
@@ -129,9 +131,10 @@ pub async fn analyze_image_with_gemini(image_id_str: &str) -> Result<GeminiProdu
         Err(e) => (Err(e.clone()), format!("ERROR: {}", e)),
     };
 
-    // Create log entry
-    let time_str = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let log_line = format!("{} : {} : {}\n", time_str, image_id_str, log_text);
+    // Create log entry, ensuring text is flat without newlines
+    let time_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let flat_log_text = log_text.replace("\n", " ").replace("\r", "");
+    let log_line = format!("{} : {} : {}\n", time_str, image_id_str, flat_log_text);
     if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open("gemini_requests.log").await {
         let _ = file.write_all(log_line.as_bytes()).await;
     }
@@ -151,4 +154,63 @@ pub async fn analyze_image_with_gemini(image_id_str: &str) -> Result<GeminiProdu
     }
 
     analysis_res
+}
+
+#[derive(Deserialize, Debug)]
+pub struct GeminiScrapeInfo {
+    pub category: String,
+    pub description: String,
+}
+
+pub async fn generate_product_info_with_gemini(product_name: &str) -> Option<GeminiScrapeInfo> {
+    let api_key = std::env::var("GEMINI_API_KEY").ok()?;
+    
+    let prompt = format!(
+        "Analyze the product name '{}'. Provide a professional and detailed English description using your extensive knowledge. \
+        Include the official brand, standard ABV, specific production characteristics (e.g., ingredients, aging, filtration), and key flavor profile markers. \
+        STRICTLY UNDER 200 characters. Use factual, encyclopedia-style language. \
+        For well-known alcoholic beverages, you MUST include standard market specifications rather than generic phrases. \
+        Also identify the category as strictly one of: whisky, wine, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage. \
+        Return strictly in JSON format matching this structure: {{\"category\": \"...\", \"description\": \"...\"}}",
+        product_name
+    );
+
+    let request_body = GeminiRequest {
+        contents: vec![Content {
+            parts: vec![
+                Part::Text { text: prompt }
+            ]
+        }]
+    };
+
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}", api_key);
+    let client = reqwest::Client::new();
+    let res = client.post(&url)
+        .json(&request_body)
+        .send()
+        .await
+        .ok()?;
+
+    if !res.status().is_success() {
+        let err_text = res.text().await.unwrap_or_default();
+        eprintln!("[Scraper Gemini Error] {}", err_text);
+        return None;
+    }
+
+    let gemini_resp: GeminiResponse = res.json().await.ok()?;
+    let text_output = gemini_resp.candidates
+        .and_then(|mut c| c.pop())
+        .and_then(|c| c.content)
+        .and_then(|mut content| content.parts.take())
+        .and_then(|mut parts| parts.pop())
+        .and_then(|p| p.text)?;
+
+    let cleaned_text = text_output.trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim()
+        .to_string();
+
+    serde_json::from_str::<GeminiScrapeInfo>(&cleaned_text).ok()
 }

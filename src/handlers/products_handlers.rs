@@ -124,16 +124,7 @@ pub async fn create_product_by_ai(
     };
 
     // 3. Category Mapping
-    let tags_str = ai_result.category.to_lowercase();
-    let type_ = if tags_str.contains("whisky") || tags_str.contains("whiskies") { 0 }
-    else if tags_str.contains("wine") || tags_str.contains("wines") { 1 }
-    else if tags_str.contains("beer") || tags_str.contains("beers") { 2 }
-    else if tags_str.contains("soju") || tags_str.contains("sake") { 3 }
-    else if tags_str.contains("liqueur") || tags_str.contains("liqueurs") || tags_str.contains("spirit") || tags_str.contains("spirits") { 4 }
-    else if tags_str.contains("cocktail") || tags_str.contains("cocktails") { 5 }
-    else if tags_str.contains("coffee") || tags_str.contains("coffees") { 6 }
-    else if tags_str.contains("beverage") || tags_str.contains("beverages") { 7 }
-    else { 8 };
+    let type_ = crate::utils::scraper::parse_category(&ai_result.category);
 
     // 4. Vector Embedding
     let embedding = match crate::utils::openai::get_embedding(&ai_result.name).await {
@@ -410,7 +401,7 @@ fn db_create_product(
     // 동일한 이름의 제품이 있는지 확인
     let existing_product = products::table
         .select(crate::models::PRODUCT_COLUMNS)
-        .filter(products::name.eq(&item.name))
+        .filter(diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) = LOWER(").bind::<diesel::sql_types::Text, _>(&item.name).sql(")"))
         .first::<Product>(conn)
         .optional()
         .map_err(handler_disel_error)?;
@@ -489,7 +480,7 @@ fn db_create_product_by_ai(
 
     let existing_product = products::table
         .select(crate::models::PRODUCT_COLUMNS)
-        .filter(products::name.eq(&item.name))
+        .filter(diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) = LOWER(").bind::<diesel::sql_types::Text, _>(&item.name).sql(")"))
         .first::<Product>(conn)
         .optional()
         .map_err(handler_disel_error)?;

@@ -55,6 +55,7 @@ pub struct NoteResponse {
     pub product: Option<ProductLite>,
     pub user: Option<User>,
     pub image_ids: Option<Vec<Uuid>>,
+    pub product_image_id: Option<Uuid>,
     pub flavors: Option<Vec<i16>>,
 }
 
@@ -64,6 +65,7 @@ pub struct NoteListResponse {
     pub product: Option<ProductLite>,
     pub user: Option<User>,
     pub image_ids: Option<Vec<Uuid>>,
+    pub product_image_id: Option<Uuid>,
     pub flavors: Option<Vec<i16>>,
 }
 
@@ -317,25 +319,20 @@ fn db_get_note_by_id(
         .ok();
 
     // 이미지 ID들 조회
-    let mut image_ids_vec: Vec<Uuid> = product_images::table
+    let image_ids_vec: Vec<Uuid> = product_images::table
         .filter(product_images::note_id.eq(note_id))
         .select(product_images::id)
         .load::<Uuid>(conn)
         .map_err(handler_disel_error)?;
 
-    if image_ids_vec.is_empty() {
-        if let Some(id) = product_images::table
+    let mut product_image_id = None;
+    let image_ids = if image_ids_vec.is_empty() {
+        product_image_id = product_images::table
             .filter(product_images::note_id.is_null())
             .filter(product_images::product_id.eq(note.product_id))
             .select(product_images::id)
             .first::<Uuid>(conn)
-            .ok()
-        {
-            image_ids_vec.push(id);
-        }
-    }
-
-    let image_ids = if image_ids_vec.is_empty() {
+            .ok();
         None
     } else {
         Some(image_ids_vec)
@@ -359,6 +356,7 @@ fn db_get_note_by_id(
         product: Some(product),
         user,
         image_ids,
+        product_image_id,
         flavors,
     })
 }
@@ -435,26 +433,21 @@ fn build_note_list_response(
             .ok();
 
         // 이미지 ID들 조회 (최대 3개)
-        let mut image_ids_vec: Vec<Uuid> = product_images::table
+        let image_ids_vec: Vec<Uuid> = product_images::table
             .filter(product_images::note_id.eq(note.id))
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)
             .map_err(handler_disel_error)?;
 
-        if image_ids_vec.is_empty() {
-            if let Some(id) = product_images::table
+        let mut product_image_id = None;
+        let image_ids = if image_ids_vec.is_empty() {
+            product_image_id = product_images::table
                 .filter(product_images::note_id.is_null())
                 .filter(product_images::product_id.eq(note.product_id))
                 .select(product_images::id)
                 .first::<Uuid>(conn)
-                .ok()
-            {
-                image_ids_vec.push(id);
-            }
-        }
-
-        let image_ids = if image_ids_vec.is_empty() {
+                .ok();
             None
         } else {
             Some(image_ids_vec)
@@ -465,6 +458,7 @@ fn build_note_list_response(
             product,
             user,
             image_ids,
+            product_image_id,
             flavors: None,
         });
     }
