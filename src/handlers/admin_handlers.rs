@@ -56,6 +56,16 @@ pub struct AdminImageUploadForm {
     pub image_id: Text<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminDashboardResponse {
+    pub registered_user_count: i64,
+    pub monthly_registered_user_count: i64,
+    pub product_count: i64,
+    pub monthly_note_count: i64,
+    pub daily_note_count: i64,
+    pub not_reply_report_count: i64,
+}
+
 fn validate_admin(req: &HttpRequest) -> Result<(), CommonResponseError> {
     let user_sub = get_sub(req.clone()).map_err(|_| CommonResponseError::AuthValidationFail)?;
     let admin_sub = std::env::var("ADMIN_SUB").unwrap_or_default();
@@ -63,6 +73,75 @@ fn validate_admin(req: &HttpRequest) -> Result<(), CommonResponseError> {
         return Err(CommonResponseError::AuthValidationFail);
     }
     Ok(())
+}
+
+// ============================================
+// MARK: GET /admin/dashboard
+// ============================================
+pub async fn get_dashboard(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let dashboard_data = web::block(move || db_get_dashboard(db)).await??;
+    
+    let response = CommonResponse {
+        result: true,
+        data: dashboard_data,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+fn db_get_dashboard(pool: web::Data<Pool>) -> Result<AdminDashboardResponse, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+    let now = chrono::Utc::now();
+    let thirty_days_ago = now - chrono::Duration::days(30);
+    let twenty_four_hours_ago = now - chrono::Duration::hours(24);
+
+    let registered_user_count = crate::schema::users::table
+        .count()
+        .get_result::<i64>(conn)
+        .map_err(handler_disel_error)?;
+
+    let monthly_registered_user_count = crate::schema::users::table
+        .filter(crate::schema::users::registered.ge(thirty_days_ago))
+        .count()
+        .get_result::<i64>(conn)
+        .map_err(handler_disel_error)?;
+
+    let product_count = products::table
+        .count()
+        .get_result::<i64>(conn)
+        .map_err(handler_disel_error)?;
+
+    let monthly_note_count = notes::table
+        .filter(notes::registered.ge(thirty_days_ago))
+        .count()
+        .get_result::<i64>(conn)
+        .map_err(handler_disel_error)?;
+
+    let daily_note_count = notes::table
+        .filter(notes::registered.ge(twenty_four_hours_ago))
+        .count()
+        .get_result::<i64>(conn)
+        .map_err(handler_disel_error)?;
+
+    let not_reply_report_count = reports::table
+        .filter(reports::reply.is_null())
+        .count()
+        .get_result::<i64>(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(AdminDashboardResponse {
+        registered_user_count,
+        monthly_registered_user_count,
+        product_count,
+        monthly_note_count,
+        daily_note_count,
+        not_reply_report_count,
+    })
 }
 
 // ============================================

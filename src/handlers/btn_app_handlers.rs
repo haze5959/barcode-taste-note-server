@@ -140,7 +140,7 @@ fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, C
 
     // 제품 리스트 조회
     let products_list: Vec<ProductLite> = products::table
-        .select((products::id, products::name, products::type_, products::rating, products::registered))
+        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
         .order(products::registered.desc())
         .limit(HOME_INFO_LENGTH)
         .load::<ProductLite>(conn)
@@ -184,12 +184,12 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
     for note in notes_list {
         let product = products::table
             .find(note.product_id)
-            .select((products::id, products::name, products::type_, products::rating, products::registered))
+            .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
             .first::<ProductLite>(conn)
             .ok();
 
         // 유저 조회
-        let user = users::table.select((users::id, users::nick_name, users::intro, users::image_id))
+        let user = users::table.select(crate::models::USER_COLUMNS)
             .find(note.user_id)
             .first::<User>(conn)
             .ok();

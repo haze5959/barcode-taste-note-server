@@ -34,6 +34,7 @@ pub struct SetUserParams {
 pub struct UserDetailResponse {
     pub user: User,
     pub note_count: i64,
+    pub needed_review_product: Option<bool>,
 }
 
 // ============================================
@@ -170,6 +171,7 @@ fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, 
         result.push(UserDetailResponse {
             user,
             note_count,
+            needed_review_product: None,
         });
     }
 
@@ -194,9 +196,18 @@ fn get_user_info_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<UserD
         .first(conn)
         .map_err(handler_disel_error)?;
 
+    let needed_review_product: bool = select(exists(
+        notes::table
+            .filter(notes::user_id.eq(user.id))
+            .filter(notes::rating.eq(0)),
+    ))
+    .get_result(conn)
+    .unwrap_or(false);
+
     Ok(UserDetailResponse {
         user,
         note_count,
+        needed_review_product: Some(needed_review_product),
     })
 }
 
@@ -237,6 +248,7 @@ fn db_get_user_info_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<UserDe
     Ok(UserDetailResponse {
         user,
         note_count,
+        needed_review_product: None,
     })
 }
 
@@ -285,6 +297,7 @@ pub(crate) fn register_user(
         id: new_uuid,
         nick_name: &nick,
         sub: user_sub,
+        registered: Some(chrono::Utc::now()),
     };
     let res = insert_into(users)
         .values(&new_user)

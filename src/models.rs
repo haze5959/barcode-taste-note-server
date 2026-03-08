@@ -19,6 +19,7 @@ pub struct User {
     pub nick_name: String,
     pub intro: Option<String>,
     pub image_id: Option<Uuid>,
+    pub registered: Option<DateTime<Utc>>,
 }
 
 pub type UserColumns = (
@@ -26,6 +27,7 @@ pub type UserColumns = (
     crate::schema::users::nick_name,
     crate::schema::users::intro,
     crate::schema::users::image_id,
+    crate::schema::users::registered,
 );
 
 pub const USER_COLUMNS: UserColumns = (
@@ -33,6 +35,7 @@ pub const USER_COLUMNS: UserColumns = (
     crate::schema::users::nick_name,
     crate::schema::users::intro,
     crate::schema::users::image_id,
+    crate::schema::users::registered,
 );
 
 #[derive(Insertable, Debug)]
@@ -40,7 +43,8 @@ pub const USER_COLUMNS: UserColumns = (
 pub struct NewUser<'a> {
     pub id: Uuid,
     pub nick_name: &'a str,
-    pub sub: &'a str
+    pub sub: &'a str,
+    pub registered: Option<DateTime<Utc>>,
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]
@@ -88,6 +92,7 @@ pub struct ProductLite {
     pub type_: i16,
     pub rating: Option<f32>,
     pub registered: DateTime<Utc>,
+    pub note_count: i32,
 }
 
 #[derive(Insertable, Debug)]

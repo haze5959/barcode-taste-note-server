@@ -46,38 +46,46 @@ async fn main() -> std::io::Result<()> {
             // Authenticated routes
             .service(
                 web::scope("api")
-                    .wrap(HttpAuthentication::bearer(auth::validator))
-                    // Users
-                    .route("/users", web::post().to(handlers::users_handler::add_user))
-                    .route("/users/me", web::get().to(handlers::users_handler::get_my_info))
-                    .route("/users/favorites", web::get().to(handlers::users_handler::get_my_favorites))
-                    .route("/users/me", web::put().to(handlers::users_handler::update_user_nick))
-                    .route("/users/me", web::delete().to(handlers::users_handler::delete_user))
-                    // Products
-                    .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list))
-                    .route("/products/favorite", web::post().to(handlers::products_handlers::set_product_favorite))
-                    .route("/products/ai", web::post().to(handlers::products_handlers::create_product_by_ai))
-                    // Notes
-                    .route("/notes/calendar", web::get().to(handlers::notes_handlers::get_notes_calendar))
-                    .route("/notes", web::post().to(handlers::notes_handlers::create_note))
-                    .route("/notes/{id}", web::put().to(handlers::notes_handlers::update_note))
-                    .route("/notes/{id}", web::delete().to(handlers::notes_handlers::delete_note))
-                    // Images
-                    .route("/images", web::post().to(handlers::images_handlers::upload_image))
-                    .route("/images/{id}", web::delete().to(handlers::images_handlers::delete_image))
-                    // BTN APP
-                    .route("/btn/report", web::get().to(handlers::btn_app_handlers::get_my_reports))
-                    .route("/btn/report", web::post().to(handlers::btn_app_handlers::create_report))
-            )
+                            .wrap(HttpAuthentication::bearer(auth::validator))
+                            // Users
+                            .route("/users", web::post().to(handlers::users_handler::add_user))
+                            .route("/users/me", web::get().to(handlers::users_handler::get_my_info))
+                            .route("/users/favorites", web::get().to(handlers::users_handler::get_my_favorites))
+                            .route("/users/me", web::put().to(handlers::users_handler::update_user_nick))
+                            .route("/users/me", web::delete().to(handlers::users_handler::delete_user))
+                            // Products
+                            .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list))
+                            .route("/products/favorite", web::post().to(handlers::products_handlers::set_product_favorite))
+                            .route("/products/tasted", web::get().to(handlers::products_handlers::get_tasted_products_list))
+                            .route("/products/ai", web::post().to(handlers::products_handlers::create_product_by_ai))
+                            .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode_with_auth))
+                            .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id_with_auth))
+                            // Notes
+                            .route("/notes/calendar", web::get().to(handlers::notes_handlers::get_notes_calendar))
+                            .route("/notes/rating", web::get().to(handlers::notes_handlers::get_notes_by_rating))
+                            .route("/notes", web::post().to(handlers::notes_handlers::create_note))
+                            .route("/notes/{id}", web::put().to(handlers::notes_handlers::update_note))
+                            .route("/notes/{id}", web::delete().to(handlers::notes_handlers::delete_note))
+                            // Images
+                            .route("/images", web::post().to(handlers::images_handlers::upload_image))
+                            .route("/images/{id}", web::delete().to(handlers::images_handlers::delete_image))
+                            // BTN APP
+                            .route("/btn/report", web::get().to(handlers::btn_app_handlers::get_my_reports))
+                            .route("/btn/report", web::post().to(handlers::btn_app_handlers::create_report))
+                    )
             .service(
                 web::scope("admin")
-                    .wrap(HttpAuthentication::bearer(auth::validator))
-                    .route("/report", web::get().to(handlers::admin_handlers::get_reports))
-                    .route("/report", web::put().to(handlers::admin_handlers::update_admin_report))
-                    .route("/product", web::get().to(handlers::admin_handlers::get_admin_product))
-                    .route("/product", web::put().to(handlers::admin_handlers::update_admin_product))
-                    .route("/product/merge", web::post().to(handlers::admin_handlers::merge_admin_product))
-                    .route("/image", web::post().to(handlers::admin_handlers::upload_admin_image))
+                    .service(
+                        web::scope("")
+                            .wrap(HttpAuthentication::bearer(auth::validator))
+                            .route("/dashboard", web::get().to(handlers::admin_handlers::get_dashboard)) // New Dashboard Endpoint added correctly here too!
+                            .route("/report", web::get().to(handlers::admin_handlers::get_reports))
+                            .route("/report", web::put().to(handlers::admin_handlers::update_admin_report))
+                            .route("/product", web::get().to(handlers::admin_handlers::get_admin_product))
+                            .route("/product", web::put().to(handlers::admin_handlers::update_admin_product))
+                            .route("/product/merge", web::post().to(handlers::admin_handlers::merge_admin_product))
+                            .route("/image", web::post().to(handlers::admin_handlers::upload_admin_image))
+                    )
             )
     })
     .bind("172.30.1.21:5959")?

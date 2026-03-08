@@ -75,6 +75,13 @@ pub struct NoteCalendarQuery {
     pub month: u32,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NoteRatingQuery {
+    pub page: Option<i64>,
+    pub per: Option<i64>,
+    pub rating: i16,
+}
+
 // ============================================
 // MARK: Handler for POST
 // ============================================
@@ -175,6 +182,24 @@ pub async fn get_notes_calendar(
     let response = CommonResponse {
         result: true,
         data: calendar_data,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /api/notes/rating (Authenticated)
+pub async fn get_notes_by_rating(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    query: web::Query<NoteRatingQuery>,
+) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+    let notes_list =
+        web::block(move || db_get_notes_by_rating(db, user_sub, query.into_inner()))
+            .await??;
+    let response = CommonResponse {
+        result: true,
+        data: notes_list,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -308,7 +333,7 @@ fn db_get_note_by_id(
 
     let product = products::table
         .find(note.product_id)
-        .select((products::id, products::name, products::type_, products::rating, products::registered))
+        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
         .first::<ProductLite>(conn)
         .map_err(handler_disel_error)?;
 
@@ -422,7 +447,7 @@ fn build_note_list_response(
         }
         let product = products::table
                 .find(note.product_id)
-                .select((products::id, products::name, products::type_, products::rating, products::registered))
+                .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
                 .first::<ProductLite>(conn)
                 .ok();
 
@@ -783,4 +808,39 @@ fn db_get_notes_calendar(
     }
 
     Ok(calendar_map)
+}
+
+fn db_get_notes_by_rating(
+    pool: web::Data<Pool>,
+    user_sub: String,
+    query: NoteRatingQuery,
+) -> Result<Vec<NoteListResponse>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let page = query.page.unwrap_or(1);
+    let per = query.per.unwrap_or(10);
+    let offset = (page - 1) * per;
+
+    // 유저 ID 조회
+    let user_id = match users::table
+        .filter(users::sub.eq(&user_sub))
+        .select(users::id)
+        .first::<Uuid>(conn)
+    {
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
+
+    let notes_list: Vec<NoteSimple> = notes::table
+        .select(NOTE_SIMPLE_COLUMNS)
+        .filter(notes::user_id.eq(user_id))
+        .filter(notes::rating.eq(query.rating))
+        .order(notes::registered.desc())
+        .offset(offset)
+        .limit(per)
+        .load::<NoteSimple>(conn)
+        .map_err(handler_disel_error)?;
+
+    build_note_list_response(conn, notes_list)
 }

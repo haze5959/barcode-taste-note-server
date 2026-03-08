@@ -108,6 +108,7 @@ diesel::table! {
         sub -> Text,
         intro -> Nullable<Text>,
         image_id -> Nullable<Uuid>,
+        registered -> Nullable<Timestamptz>,
     }
 }
 

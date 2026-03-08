@@ -47,12 +47,19 @@ pub struct ProductDetailResponse {
     pub product: Product,
     pub image_ids: Vec<Uuid>,
     pub favorite_count: i64,
+    pub my_note_ids: Option<Vec<Uuid>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProductListItem {
     pub product: ProductLite,
     pub image_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProductTastedListItem {
+    pub product: Product,
+    pub my_rating: i16,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -192,7 +199,24 @@ pub async fn get_product_by_id(
     in_product_id: web::Path<Uuid>,
 ) -> Result<HttpResponse, Error> {
     let product_detail =
-        web::block(move || db_get_product_by_id(db, in_product_id.into_inner())).await??;
+        web::block(move || db_get_product_by_id(db, in_product_id.into_inner(), None)).await??;
+    let response = CommonResponse {
+        result: true,
+        data: product_detail,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /api/products/{id} (Authenticated)
+pub async fn get_product_by_id_with_auth(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    in_product_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+    let product_detail =
+        web::block(move || db_get_product_by_id(db, in_product_id.into_inner(), Some(user_sub))).await??;
     let response = CommonResponse {
         result: true,
         data: product_detail,
@@ -206,109 +230,17 @@ pub async fn get_product_by_barcode(
     db: web::Data<Pool>,
     in_barcode_id: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
-    let barcode_str = in_barcode_id.into_inner();
-    let db_clone = db.clone();
-    let bc_clone = barcode_str.clone();
+    process_get_product_by_barcode(db, in_barcode_id.into_inner(), None).await
+}
 
-    let product_detail_result =
-        web::block(move || db_get_product_by_barcode(db_clone, bc_clone)).await?;
-
-    match product_detail_result {
-        Ok(detail) => {
-            let response = CommonResponse {
-                result: true,
-                data: detail,
-                error: None,
-            };
-            Ok(HttpResponse::Ok().json(response))
-        }
-        Err(crate::errors::CommonResponseError::RecordNotFound) => {
-            // Fallback to scraping barcodelookup.com
-            if let Some(scraped) = crate::utils::scraper::scrape_barcode_lookup(&barcode_str).await {
-                // 1. Download image if exists
-                let mut image_id = None;
-                if let Some(img_url) = scraped.image_url {
-                    let new_uuid = uuid::Uuid::new_v4();
-                    if crate::utils::scraper::download_image(&img_url, new_uuid).await.is_ok() {
-                        image_id = Some(new_uuid);
-                        
-                        let new_image = crate::models::NewProductImage {
-                            id: new_uuid,
-                            product_id: None,
-                            note_id: None,
-                            user_id: None,
-                            registered: chrono::Utc::now(),
-                        };
-                        let db_clone_img = db.clone();
-                        let _ = web::block(move || {
-                            let conn = &mut db_clone_img.get().unwrap();
-                            diesel::insert_into(crate::schema::product_images::table)
-                                .values(&new_image)
-                                .execute(conn)
-                        }).await;
-                    }
-                }
-
-                // 2. Generate vector embedding
-                let embedding = crate::utils::openai::get_embedding(&scraped.name).await.ok();
-
-                // 3. Create Product
-                let create_params = CreateProductParams {
-                    name: scraped.name,
-                    desc: scraped.desc,
-                    type_: scraped.type_,
-                    image_id,
-                    barcode_id: Some(barcode_str.clone()),
-                };
-
-                let db_clone_create = db.clone();
-                let created_product = web::block(move || {
-                    db_create_product(db_clone_create, create_params, embedding)
-                }).await?;
-
-                match created_product {
-                    Ok(_prod) => {
-                        // After creating, we query it again to build ProductDetailResponse
-                        let db_clone_fetch = db.clone();
-                        let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, barcode_str)).await?;
-                        match new_detail {
-                            Ok(detail) => {
-                                let response = CommonResponse {
-                                    result: true,
-                                    data: detail,
-                                    error: None,
-                                };
-                                Ok(HttpResponse::Ok().json(response))
-                            }
-                            Err(e) => {
-                                let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
-                                Ok(HttpResponse::Ok().json(response))
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
-                        Ok(HttpResponse::Ok().json(response))
-                    }
-                }
-            } else {
-                let response: CommonResponse<Option<()>> = CommonResponse {
-                    result: false,
-                    data: None,
-                    error: Some(crate::errors::CommonResponseError::RecordNotFound as u8),
-                };
-                Ok(HttpResponse::Ok().json(response))
-            }
-        }
-        Err(e) => {
-            let response: CommonResponse<Option<()>> = CommonResponse {
-                result: false,
-                data: None,
-                error: Some(e as u8),
-            };
-            Ok(HttpResponse::Ok().json(response))
-        }
-    }
+/// Path: /api/products/barcode/{barcode_id} (Authenticated)
+pub async fn get_product_by_barcode_with_auth(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    in_barcode_id: web::Path<String>,
+) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+    process_get_product_by_barcode(db, in_barcode_id.into_inner(), Some(user_sub)).await
 }
 
 /// Path: /products
@@ -382,6 +314,24 @@ pub async fn set_product_favorite(
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,
         data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /api/products/tasted (Authenticated)
+pub async fn get_tasted_products_list(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    query: web::Query<ProductListQuery>,
+) -> Result<HttpResponse, Error> {
+    let user_sub = get_sub(req)?;
+    let query_inner = query.into_inner();
+
+    let tasted_products_list = web::block(move || db_get_tasted_products(db, query_inner, user_sub)).await??;
+    let response = CommonResponse {
+        result: true,
+        data: tasted_products_list,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -536,6 +486,7 @@ fn db_create_product_by_ai(
 fn db_get_product_by_id(
     pool: web::Data<Pool>,
     in_product_id: Uuid,
+    sub: Option<String>,
 ) -> Result<ProductDetailResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
@@ -560,16 +511,41 @@ fn db_get_product_by_id(
         .first(conn)
         .map_err(handler_disel_error)?;
 
+    // 나의 노트 ID들 조회
+    let mut my_note_ids = None;
+    if let Some(user_sub) = sub {
+        let user_id_res = users::table
+            .filter(users::sub.eq(&user_sub))
+            .select(users::id)
+            .first::<Uuid>(conn)
+            .optional()
+            .map_err(handler_disel_error)?;
+
+        if let Some(uid) = user_id_res {
+            let note_ids: Vec<Uuid> = crate::schema::notes::table
+                .filter(crate::schema::notes::product_id.eq(in_product_id))
+                .filter(crate::schema::notes::user_id.eq(uid))
+                .select(crate::schema::notes::id)
+                .load::<Uuid>(conn)
+                .map_err(handler_disel_error)?;
+            my_note_ids = Some(note_ids);
+        } else {
+            my_note_ids = Some(Vec::new());
+        }
+    }
+
     Ok(ProductDetailResponse {
         product,
         image_ids: image_ids,
         favorite_count,
+        my_note_ids,
     })
 }
 
 fn db_get_product_by_barcode(
     pool: web::Data<Pool>,
     barcode_id_str: String,
+    sub: Option<String>,
 ) -> Result<ProductDetailResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
@@ -602,10 +578,34 @@ fn db_get_product_by_barcode(
         .first(conn)
         .map_err(handler_disel_error)?;
 
+    // 나의 노트 ID들 조회
+    let mut my_note_ids = None;
+    if let Some(user_sub) = sub {
+        let user_id_res = users::table
+            .filter(users::sub.eq(&user_sub))
+            .select(users::id)
+            .first::<Uuid>(conn)
+            .optional()
+            .map_err(handler_disel_error)?;
+
+        if let Some(uid) = user_id_res {
+            let note_ids: Vec<Uuid> = crate::schema::notes::table
+                .filter(crate::schema::notes::product_id.eq(product_id))
+                .filter(crate::schema::notes::user_id.eq(uid))
+                .select(crate::schema::notes::id)
+                .load::<Uuid>(conn)
+                .map_err(handler_disel_error)?;
+            my_note_ids = Some(note_ids);
+        } else {
+            my_note_ids = Some(Vec::new());
+        }
+    }
+
     Ok(ProductDetailResponse {
         product,
         image_ids: image_ids,
         favorite_count,
+        my_note_ids,
     })
 }
 
@@ -651,7 +651,7 @@ fn db_get_products_list(
     }
 
     let products_list: Vec<ProductLite> = products_query
-        .select((products::id, products::name, products::type_, products::rating, products::registered))
+        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
         .offset(offset)
         .limit(per)
         .load::<ProductLite>(conn)
@@ -676,6 +676,107 @@ fn db_get_products_list(
     }
 
     Ok(result)
+}
+
+/// Shared logic for getting product by barcode
+async fn process_get_product_by_barcode(
+    db: web::Data<Pool>,
+    barcode_str: String,
+    sub: Option<String>,
+) -> Result<HttpResponse, Error> {
+    let db_clone = db.clone();
+    let bc_clone = barcode_str.clone();
+    let sub_clone = sub.clone();
+
+    let product_detail_result =
+        web::block(move || db_get_product_by_barcode(db_clone, bc_clone, sub_clone)).await?;
+
+    match product_detail_result {
+        Ok(detail) => {
+            let response = CommonResponse {
+                result: true,
+                data: detail,
+                error: None,
+            };
+            Ok(HttpResponse::Ok().json(response))
+        }
+        Err(crate::errors::CommonResponseError::RecordNotFound) => {
+            if let Some(scraped) = crate::utils::scraper::scrape_barcode_lookup(&barcode_str).await {
+                // 1. Download image if exists
+                let mut image_id = None;
+                if let Some(img_url) = scraped.image_url {
+                    let new_uuid = uuid::Uuid::new_v4();
+                    if crate::utils::scraper::download_image(&img_url, new_uuid).await.is_ok() {
+                        image_id = Some(new_uuid);
+                        let new_image = crate::models::NewProductImage {
+                            id: new_uuid,
+                            product_id: None,
+                            note_id: None,
+                            user_id: None,
+                            registered: chrono::Utc::now(),
+                        };
+                        let db_clone_img = db.clone();
+                        let _ = web::block(move || {
+                            let conn = &mut db_clone_img.get().unwrap();
+                            diesel::insert_into(crate::schema::product_images::table)
+                                .values(&new_image)
+                                .execute(conn)
+                        }).await;
+                    }
+                }
+
+                // 2. Generate vector embedding
+                let embedding = crate::utils::openai::get_embedding(&scraped.name).await.ok();
+
+                // 3. Create Product
+                let create_params = CreateProductParams {
+                    name: scraped.name,
+                    desc: scraped.desc,
+                    type_: scraped.type_,
+                    image_id,
+                    barcode_id: Some(barcode_str.clone()),
+                };
+
+                let db_clone_create = db.clone();
+                let created_product = web::block(move || {
+                    db_create_product(db_clone_create, create_params, embedding)
+                }).await?;
+
+                match created_product {
+                    Ok(_prod) => {
+                        // After creating, query details again
+                        let db_clone_fetch = db.clone();
+                        let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, barcode_str, sub)).await?;
+                        match new_detail {
+                            Ok(detail) => {
+                                let response = CommonResponse { result: true, data: detail, error: None };
+                                Ok(HttpResponse::Ok().json(response))
+                            }
+                            Err(e) => {
+                                let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
+                                Ok(HttpResponse::Ok().json(response))
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
+                        Ok(HttpResponse::Ok().json(response))
+                    }
+                }
+            } else {
+                let response: CommonResponse<Option<()>> = CommonResponse {
+                    result: false,
+                    data: None,
+                    error: Some(crate::errors::CommonResponseError::RecordNotFound as u8),
+                };
+                Ok(HttpResponse::Ok().json(response))
+            }
+        }
+        Err(e) => {
+            let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
+            Ok(HttpResponse::Ok().json(response))
+        }
+    }
 }
 
 fn db_get_my_favorite_products_list(
@@ -722,7 +823,7 @@ fn db_get_my_favorite_products_list(
     }
 
     let products_list: Vec<ProductLite> = products_query
-        .select((products::id, products::name, products::type_, products::rating, products::registered))
+        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
         .load::<ProductLite>(conn)
         .map_err(handler_disel_error)?;
 
@@ -795,4 +896,95 @@ fn db_set_product_favorite(
     }
 
     Ok(())
+}
+
+fn db_get_tasted_products(
+    pool: web::Data<Pool>,
+    query: ProductListQuery,
+    user_sub: String,
+) -> Result<Vec<ProductTastedListItem>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let page = query.page.unwrap_or(1);
+    let per = query.per.unwrap_or(10);
+    let offset = (page - 1) * per;
+
+    // 유저 ID 조회
+    let user_id = match users::table
+        .filter(users::sub.eq(&user_sub))
+        .select(users::id)
+        .first::<Uuid>(conn)
+    {
+        Ok(id) => id,
+        Err(diesel::result::Error::NotFound) => crate::handlers::users_handler::register_user(conn, None, &user_sub)?.id,
+        Err(e) => return Err(handler_disel_error(e)),
+    };
+
+    // 2. Note와 Product를 Join하여 필터링 및 DB 상 페이징 실행 (PostgreSQL DISTINCT ON 지원 활용 불가 시 대안)
+    // Diesel에서는 GROUP BY로 복잡한 최신 row 가져오기 및 Join, limit 처리가 까다로움.
+    // PostgreSQL 전용 `DISTINCT ON`을 수동 SQL(raw sql)로 사용하거나 Query builder를 조합.
+    let mut sql_query_str = String::from(
+        "SELECT p.id, p.name, p.type, p.desc, p.rating as p_rating, p.flavor_infos, p.registered, p.note_count, \
+         n.rating as n_rating \
+         FROM ( \
+            SELECT DISTINCT ON (product_id) product_id, rating, registered \
+            FROM notes \
+            WHERE user_id = $1 \
+            ORDER BY product_id, registered DESC \
+         ) n \
+         INNER JOIN products p ON p.id = n.product_id ",
+    );
+
+    if let Some(type_filter) = query.type_ {
+        sql_query_str.push_str(&format!("WHERE p.type = {} ", type_filter));
+    }
+
+    sql_query_str.push_str(&format!(
+        "ORDER BY n.registered DESC LIMIT {} OFFSET {}",
+        per, offset
+    ));
+
+    #[derive(QueryableByName)]
+    struct RawTastedProduct {
+        #[diesel(sql_type = diesel::sql_types::Uuid)]
+        id: Uuid,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        name: String,
+        #[diesel(sql_type = diesel::sql_types::Int2)]
+        type_: i16,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+        desc: Option<String>,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Float4>)]
+        p_rating: Option<f32>,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Jsonb>)]
+        flavor_infos: Option<serde_json::Value>,
+        #[diesel(sql_type = diesel::sql_types::Timestamptz)]
+        registered: chrono::DateTime<Utc>,
+        #[diesel(sql_type = diesel::sql_types::Int4)]
+        note_count: i32,
+        #[diesel(sql_type = diesel::sql_types::Int2)]
+        n_rating: i16,
+    }
+
+    let raw_results: Vec<RawTastedProduct> = diesel::sql_query(sql_query_str)
+        .bind::<diesel::sql_types::Uuid, _>(user_id)
+        .load::<RawTastedProduct>(conn)
+        .map_err(handler_disel_error)?;
+
+    let mut result = Vec::new();
+    for raw in raw_results {
+        let product = Product {
+            id: raw.id,
+            name: raw.name,
+            type_: raw.type_,
+            desc: raw.desc,
+            rating: raw.p_rating,
+            flavor_infos: raw.flavor_infos,
+            registered: raw.registered,
+            note_count: raw.note_count,
+        };
+        result.push(ProductTastedListItem { product, my_rating: raw.n_rating });
+    }
+
+    Ok(result)
 }
