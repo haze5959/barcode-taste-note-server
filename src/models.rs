@@ -284,3 +284,19 @@ pub struct NewReport {
     #[diesel(column_name = type_)]
     pub type_: i16,
 }
+
+#[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = follows)]
+pub struct Follow {
+    pub user_id: Uuid,
+    pub following_user_id: Uuid,
+    pub id: Uuid,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = follows)]
+pub struct NewFollow {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub following_user_id: Uuid,
+}

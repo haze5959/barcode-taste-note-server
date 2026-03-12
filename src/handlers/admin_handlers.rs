@@ -5,7 +5,7 @@ use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
 use crate::models::{CommonResponse, Product, Report};
 use crate::schema::{barcodes, favorites, flavor_tags, notes, product_images, products, reports};
-use crate::utils::auth::get_sub;
+use crate::utils::auth::get_auth_info;
 use crate::utils::openai::get_embedding;
 
 use actix_multipart::form::{MultipartForm, tempfile::TempFile, text::Text};
@@ -67,7 +67,8 @@ pub struct AdminDashboardResponse {
 }
 
 fn validate_admin(req: &HttpRequest) -> Result<(), CommonResponseError> {
-    let user_sub = get_sub(req.clone()).map_err(|_| CommonResponseError::AuthValidationFail)?;
+    let auth_info = get_auth_info(req.clone()).map_err(|_| CommonResponseError::AuthValidationFail)?;
+    let user_sub = auth_info.sub;
     let admin_sub = std::env::var("ADMIN_SUB").unwrap_or_default();
     if user_sub != admin_sub {
         return Err(CommonResponseError::AuthValidationFail);

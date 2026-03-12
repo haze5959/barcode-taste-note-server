@@ -6,7 +6,8 @@ use crate::errors::handler_disel_error;
 use crate::handlers::users_handler::register_user;
 use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple};
 use crate::schema::{flavor_tags, notes, product_images, products, users};
-use crate::utils::auth::get_sub;
+use crate::utils::auth::{get_auth_info, AuthInfo};
+use crate::utils::db::get_user_id_by_sub;
 use crate::utils::image_file::move_image_to_deleted;
 use actix_web::rt::spawn;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
@@ -92,11 +93,11 @@ pub async fn create_note(
     db: web::Data<Pool>,
     item: web::Json<CreateNoteParams>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
     let item_for_db = item.clone();
     let db_clone = db.clone();
     let note =
-        web::block(move || db_create_note(db_clone, actix_web::web::Json(item_for_db), user_sub))
+        web::block(move || db_create_note(db_clone, actix_web::web::Json(item_for_db), auth_info))
             .await??;
 
     // 비동기로 제품 정보 업데이트 (flavors, rating, note_count)
@@ -175,9 +176,9 @@ pub async fn get_notes_calendar(
     db: web::Data<Pool>,
     query: web::Query<NoteCalendarQuery>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
     let calendar_data =
-        web::block(move || db_get_notes_calendar(db, user_sub, query.into_inner()))
+        web::block(move || db_get_notes_calendar(db, auth_info, query.into_inner()))
             .await??;
     let response = CommonResponse {
         result: true,
@@ -193,9 +194,9 @@ pub async fn get_notes_by_rating(
     db: web::Data<Pool>,
     query: web::Query<NoteRatingQuery>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
     let notes_list =
-        web::block(move || db_get_notes_by_rating(db, user_sub, query.into_inner()))
+        web::block(move || db_get_notes_by_rating(db, auth_info, query.into_inner()))
             .await??;
     let response = CommonResponse {
         result: true,
@@ -216,9 +217,9 @@ pub async fn update_note(
     note_id: web::Path<Uuid>,
     item: web::Json<UpdateNoteParams>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
     let note =
-        web::block(move || db_update_note(db, note_id.into_inner(), item, user_sub)).await??;
+        web::block(move || db_update_note(db, note_id.into_inner(), item, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: note,
@@ -237,9 +238,9 @@ pub async fn delete_note(
     db: web::Data<Pool>,
     note_id: web::Path<Uuid>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
     let _delete_result =
-        web::block(move || db_delete_note(db, note_id.into_inner(), user_sub)).await??;
+        web::block(move || db_delete_note(db, note_id.into_inner(), auth_info)).await??;
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,
         data: None,
@@ -255,45 +256,68 @@ pub async fn delete_note(
 fn db_create_note(
     pool: web::Data<Pool>,
     item: web::Json<CreateNoteParams>,
-    user_sub: String,
+    auth_info: AuthInfo,
 ) -> Result<Note, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user_id = match users::table
-        .filter(users::sub.eq(&user_sub))
-        .select(users::id)
-        .first::<Uuid>(conn)
-    {
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
-        Err(e) => return Err(handler_disel_error(e)),
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(e) => return Err(e),
     };
 
-    let new_note_id = Uuid::new_v4();
-    let new_note = NewNote {
-        id: new_note_id,
-        user_id,
-        product_id: item.product_id,
-        body: item.body.clone(),
-        registered: Utc::now(),
-        rating: item.rating,
-        public_scope: item.public_scope,
-        details: item.details.as_deref().and_then(|d| serde_json::from_str(d).ok()),
-    };
+    let parsed_details = item.details.as_deref().and_then(|d| serde_json::from_str(d).ok());
 
     let note = conn.transaction::<Note, CommonResponseError, _>(|conn| {
-        let note = insert_into(notes::table)
-            .values(&new_note)
-            .get_result::<Note>(conn)?;
+        // 기존 0점 노트 존재 여부 확인
+        let existing_note_result = notes::table
+            .filter(notes::user_id.eq(user_id))
+            .filter(notes::product_id.eq(item.product_id))
+            .filter(notes::rating.eq(0))
+            .first::<Note>(conn);
+
+        let note = match existing_note_result {
+            Ok(ref existing) => {
+                // 기존 노트 업데이트
+                diesel::update(notes::table.find(existing.id))
+                    .set((
+                        notes::body.eq(&item.body),
+                        notes::registered.eq(Utc::now()),
+                        notes::rating.eq(item.rating),
+                        notes::public_scope.eq(item.public_scope),
+                        notes::details.eq(parsed_details.clone()),
+                    ))
+                    .get_result::<Note>(conn)?
+            }
+            Err(diesel::result::Error::NotFound) => {
+                // 새 노트 생성
+                let new_note_id = Uuid::new_v4();
+                let new_note = NewNote {
+                    id: new_note_id,
+                    user_id,
+                    product_id: item.product_id,
+                    body: item.body.clone(),
+                    registered: Utc::now(),
+                    rating: item.rating,
+                    public_scope: item.public_scope,
+                    details: parsed_details.clone(),
+                };
+
+                insert_into(notes::table)
+                    .values(&new_note)
+                    .get_result::<Note>(conn)?
+            }
+            Err(e) => return Err(handler_disel_error(e)),
+        };
 
         // 이미지들을 노트에 연결
         for image_id in &item.image_ids {
             diesel::update(product_images::table.find(image_id))
                 .set((
                     product_images::user_id.eq(user_id),
-                    product_images::note_id.eq(new_note.id),
-                    product_images::product_id.eq(new_note.product_id),
+                    product_images::note_id.eq(note.id),
+                    product_images::product_id.eq(note.product_id),
                 ))
                 .execute(conn)?;
         }
@@ -304,8 +328,8 @@ fn db_create_note(
                 let new_flavor = NewFlavorTag {
                     id: Uuid::new_v4(),
                     flavor: *flavor_val,
-                    product_id: new_note.product_id,
-                    note_id: new_note.id,
+                    product_id: note.product_id,
+                    note_id: note.id,
                 };
                 insert_into(flavor_tags::table)
                     .values(&new_flavor)
@@ -425,6 +449,7 @@ fn db_get_notes_list(
 
     let notes_list: Vec<NoteSimple> = notes_query
         .select(NOTE_SIMPLE_COLUMNS)
+        .filter(notes::rating.ne(0))
         .order(notes::registered.desc())
         .offset(offset)
         .limit(per)
@@ -506,6 +531,7 @@ fn db_get_notes_by_user(
     let mut notes_query = notes::table
         .select(NOTE_SIMPLE_COLUMNS)
         .filter(notes::user_id.eq(user_id))
+        .filter(notes::rating.ne(0))
         .into_boxed();
 
     match query.order_by.as_deref() {
@@ -533,19 +559,15 @@ fn db_update_note(
     pool: web::Data<Pool>,
     note_id: Uuid,
     item: web::Json<UpdateNoteParams>,
-    user_sub: String,
+    auth_info: AuthInfo,
 ) -> Result<Note, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user_id = match users::table
-        .filter(users::sub.eq(&user_sub))
-        .select(users::id)
-        .first::<Uuid>(conn)
-    {
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
-        Err(e) => return Err(handler_disel_error(e)),
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(e) => return Err(e),
     };
 
     // 노트 소유자 확인
@@ -663,19 +685,15 @@ fn db_update_note(
 fn db_delete_note(
     pool: web::Data<Pool>,
     note_id: Uuid,
-    user_sub: String,
+    auth_info: AuthInfo,
 ) -> Result<bool, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user_id = match users::table
-        .select(users::id)
-        .filter(users::sub.eq(&user_sub))
-        .first::<Uuid>(conn)
-    {
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
-        Err(e) => return Err(handler_disel_error(e)),
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(e) => return Err(e),
     };
 
     // 노트 소유자 확인
@@ -710,33 +728,40 @@ fn db_delete_note(
 fn db_update_product_stats(
     pool: web::Data<Pool>,
     product_id: Uuid,
-    new_rating: i16,
+    _new_rating: i16,
     new_flavors: Option<Vec<i16>>,
 ) -> Result<(), CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
-    // 1. 제품 정보 조회
+    // 노트 카운트 조회 (rating이 0이 아닌 노트만)
+    let note_count_from_db: i64 = notes::table
+        .filter(notes::product_id.eq(product_id))
+        .filter(notes::rating.ne(0))
+        .count()
+        .get_result::<i64>(conn)
+        .map_err(handler_disel_error)?;
+
+    // 해당 제품의 모든 노트 rating 합산 후 0이 아닌 노트 수로 나눠 정수 평균 계산
+    let rating_sum: i64 = notes::table
+        .filter(notes::product_id.eq(product_id))
+        .filter(notes::rating.ne(0))
+        .select(diesel::dsl::sum(notes::rating))
+        .first::<Option<i64>>(conn)
+        .map_err(handler_disel_error)?
+        .unwrap_or(0);
+    let new_avg_rating: f32 = if note_count_from_db > 0 {
+        (rating_sum / note_count_from_db) as f32
+    } else {
+        0.0
+    };
+
+    // Flavors 업데이트
     let product = products::table
         .select(crate::models::PRODUCT_COLUMNS)
         .find(product_id)
         .first::<Product>(conn)
         .map_err(handler_disel_error)?;
 
-    // 2. 노트 카운트 조회 (DB에서 현재 제품에 대한 노트 수)
-    let note_count_from_db = notes::table
-        .filter(notes::product_id.eq(product_id))
-        .count()
-        .get_result::<i64>(conn)
-        .map_err(handler_disel_error)?;
-
-    // 3. Rating 업데이트
-    // 공식: (count * 기존 rating + new_rating) / (count + 1)
-    let old_rating = product.rating.unwrap_or(0.0);
-    let old_count = note_count_from_db - 1;
-    let new_avg_rating =
-        ((old_count as f32 * old_rating) + new_rating as f32) / note_count_from_db as f32;
-
-    // 4. Flavors 업데이트
     let mut current_flavors_json = product.flavor_infos.unwrap_or(serde_json::json!({}));
     if let Some(flavors) = new_flavors {
         if let Some(obj) = current_flavors_json.as_object_mut() {
@@ -748,7 +773,7 @@ fn db_update_product_stats(
         }
     }
 
-    // 5. DB 업데이트
+    // DB 업데이트
     diesel::update(products::table.find(product_id))
         .set((
             products::rating.eq(new_avg_rating),
@@ -763,20 +788,16 @@ fn db_update_product_stats(
 
 fn db_get_notes_calendar(
     pool: web::Data<Pool>,
-    user_sub: String,
+    auth_info: AuthInfo,
     query: NoteCalendarQuery,
 ) -> Result<HashMap<String, Vec<Uuid>>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user_id = match users::table
-        .filter(users::sub.eq(&user_sub))
-        .select(users::id)
-        .first::<Uuid>(conn)
-    {
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
-        Err(e) => return Err(handler_disel_error(e)),
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(e) => return Err(e),
     };
 
     // 해당 월의 시작일과 종료일 계산 (UTC 기준)
@@ -812,7 +833,7 @@ fn db_get_notes_calendar(
 
 fn db_get_notes_by_rating(
     pool: web::Data<Pool>,
-    user_sub: String,
+    auth_info: AuthInfo,
     query: NoteRatingQuery,
 ) -> Result<Vec<NoteListResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
@@ -822,14 +843,10 @@ fn db_get_notes_by_rating(
     let offset = (page - 1) * per;
 
     // 유저 ID 조회
-    let user_id = match users::table
-        .filter(users::sub.eq(&user_sub))
-        .select(users::id)
-        .first::<Uuid>(conn)
-    {
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
-        Err(e) => return Err(handler_disel_error(e)),
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(e) => return Err(e),
     };
 
     let notes_list: Vec<NoteSimple> = notes::table

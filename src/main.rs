@@ -29,10 +29,12 @@ async fn main() -> std::io::Result<()> {
             // Public routes
             // Users
             .route("/users", web::get().to(handlers::users_handler::get_users))
+            .route("/users/search", web::get().to(handlers::users_handler::search_users))
             .route("/users/{id}", web::get().to(handlers::users_handler::get_user_by_id))
             // Products
             .route("/products", web::post().to(handlers::products_handlers::create_product))
             .route("/products", web::get().to(handlers::products_handlers::get_products_list))
+            .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list_by_user_id))
             .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode))
             .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id))
             // Notes
@@ -53,6 +55,10 @@ async fn main() -> std::io::Result<()> {
                             .route("/users/favorites", web::get().to(handlers::users_handler::get_my_favorites))
                             .route("/users/me", web::put().to(handlers::users_handler::update_user_nick))
                             .route("/users/me", web::delete().to(handlers::users_handler::delete_user))
+                            .route("/users/follower", web::get().to(handlers::users_handler::get_followers))
+                            .route("/users/following", web::get().to(handlers::users_handler::get_followings))
+                            .route("/users/following", web::post().to(handlers::users_handler::follow_user))
+                            .route("/users/following/{id}", web::delete().to(handlers::users_handler::unfollow_user))
                             // Products
                             .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list))
                             .route("/products/favorite", web::post().to(handlers::products_handlers::set_product_favorite))
@@ -67,6 +73,7 @@ async fn main() -> std::io::Result<()> {
                             .route("/notes/{id}", web::put().to(handlers::notes_handlers::update_note))
                             .route("/notes/{id}", web::delete().to(handlers::notes_handlers::delete_note))
                             // Images
+                            .route("/images/profile", web::post().to(handlers::images_handlers::upload_profile_image))
                             .route("/images", web::post().to(handlers::images_handlers::upload_image))
                             .route("/images/{id}", web::delete().to(handlers::images_handlers::delete_image))
                             // BTN APP

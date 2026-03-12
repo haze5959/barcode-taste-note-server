@@ -7,3 +7,4 @@ pub mod scraper;
 pub mod translator;
 pub mod rate_limit;
 pub mod gemini;
+pub mod db;

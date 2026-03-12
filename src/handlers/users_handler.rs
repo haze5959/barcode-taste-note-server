@@ -3,11 +3,13 @@ use crate::constants::DEFAULT_NICK;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
-use crate::models::{CommonResponse, NewUser, User, USER_COLUMNS};
+use crate::models::{CommonResponse, Follow, NewFollow, NewUser, User, USER_COLUMNS};
 use crate::schema::users::dsl::*;
 use crate::schema::favorites;
+use crate::schema::follows;
 use crate::schema::notes;
-use crate::utils::auth::get_sub;
+use crate::utils::auth::{get_auth_info, AuthInfo};
+use crate::utils::db::get_user_id_by_sub;
 use crate::errors::handler_disel_error;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use diesel::dsl::{count, delete, exists, insert_into, select};
@@ -22,6 +24,16 @@ pub struct AddUserParams {
     pub nick_name: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SearchUserQuery {
+    pub nick_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FollowParams {
+    pub user_id: Uuid,
+}
+
 #[derive(Debug, Serialize, Deserialize, diesel::AsChangeset)]
 #[diesel(table_name = crate::schema::users)]
 #[diesel(treat_none_as_null = false)]
@@ -34,6 +46,7 @@ pub struct SetUserParams {
 pub struct UserDetailResponse {
     pub user: User,
     pub note_count: i64,
+    pub follower_count: i64,
     pub needed_review_product: Option<bool>,
 }
 
@@ -54,9 +67,8 @@ pub async fn get_users(db: web::Data<Pool>) -> Result<HttpResponse, Error> {
 
 // Path: /users/me
 pub async fn get_my_info(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
-
-    let user_info = web::block(move || get_user_info_by_sub(db, user_sub)).await??;
+    let auth_info = get_auth_info(req.clone())?;
+    let user_info = web::block(move || get_user_info_by_sub(db, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: user_info,
@@ -65,11 +77,24 @@ pub async fn get_my_info(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpRe
     Ok(HttpResponse::Ok().json(response))
 }
 
+/// Path: /users/search
+pub async fn search_users(
+    db: web::Data<Pool>,
+    query: web::Query<SearchUserQuery>,
+) -> Result<HttpResponse, Error> {
+    let result = web::block(move || db_search_users(db, query.into_inner())).await??;
+    let response = CommonResponse {
+        result: true,
+        data: result,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
 // Path: /users/favorites
 pub async fn get_my_favorites(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
-
-    let user_info = web::block(move || get_user_favorites_by_sub(db, user_sub)).await??;
+    let auth_info = get_auth_info(req.clone())?;
+    let user_info = web::block(move || get_user_favorites_by_sub(db, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: user_info,
@@ -92,6 +117,36 @@ pub async fn get_user_by_id(
     Ok(HttpResponse::Ok().json(response))
 }
 
+/// Path: GET /api/users/follower
+pub async fn get_followers(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let result = web::block(move || db_get_followers(db, auth_info)).await??;
+    let response = CommonResponse {
+        result: true,
+        data: result,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: GET /api/users/following
+pub async fn get_followings(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let result = web::block(move || db_get_followings(db, auth_info)).await??;
+    let response = CommonResponse {
+        result: true,
+        data: result,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
 // ============================================
 // MARK: Handler for POST
 // ============================================
@@ -102,8 +157,8 @@ pub async fn add_user(
     db: web::Data<Pool>,
     item: web::Json<AddUserParams>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
-    let user_info = web::block(move || add_single_user(db, item, user_sub.as_str())).await??;
+    let auth_info = get_auth_info(req.clone())?;
+    let user_info = web::block(move || add_single_user(db, item, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: user_info,
@@ -111,6 +166,23 @@ pub async fn add_user(
     };
     Ok(HttpResponse::Ok().json(response))
 }
+
+/// Path: POST /api/users/following
+pub async fn follow_user(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    item: web::Json<FollowParams>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let _ = web::block(move || db_follow_user(db, auth_info, item.into_inner())).await??;
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
 
 // ============================================
 // MARK: Handler for PUT
@@ -122,9 +194,9 @@ pub async fn update_user_nick(
     db: web::Data<Pool>,
     item: web::Json<SetUserParams>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
     let user_info =
-        web::block(move || update_single_user_nick(db, item, user_sub.as_str())).await??;
+        web::block(move || update_single_user_nick(db, item, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: user_info,
@@ -139,8 +211,8 @@ pub async fn update_user_nick(
 
 /// Path: /users/me
 pub async fn delete_user(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
-    let delete_result = web::block(move || delete_single_user(db, user_sub.as_str())).await??;
+    let auth_info = get_auth_info(req)?;
+    let delete_result = web::block(move || delete_single_user(db, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: delete_result,
@@ -149,9 +221,26 @@ pub async fn delete_user(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpRe
     Ok(HttpResponse::Ok().json(response))
 }
 
+/// Path: DELETE /api/users/following/:id
+pub async fn unfollow_user(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    follow_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let _ = web::block(move || db_unfollow_user(db, auth_info, follow_id.into_inner())).await??;
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
 // ============================================
 // MARK: Internal Methods
 // ============================================
+
 fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let items = users
@@ -168,9 +257,16 @@ fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, 
             .first(conn)
             .map_err(handler_disel_error)?;
 
+        let follower_count: i64 = follows::table
+            .filter(follows::following_user_id.eq(user.id))
+            .count()
+            .get_result(conn)
+            .map_err(handler_disel_error)?;
+
         result.push(UserDetailResponse {
             user,
             note_count,
+            follower_count,
             needed_review_product: None,
         });
     }
@@ -178,17 +274,58 @@ fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, 
     Ok(result)
 }
 
-fn get_user_info_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<UserDetailResponse, CommonResponseError> {
+fn db_search_users(
+    pool: web::Data<Pool>,
+    query: SearchUserQuery,
+) -> Result<Vec<UserDetailResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    let user = match users
+    let search_pattern = format!("%{}%", query.nick_name);
+
+    let items = users
         .select(USER_COLUMNS)
-        .filter(sub.eq(&user_sub))
-        .first::<User>(conn)
-    {
-        Ok(user) => user,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
-        Err(e) => return Err(handler_disel_error(e)),
+        .filter(crate::schema::users::nick_name.like(search_pattern))
+        .load::<User>(conn)
+        .map_err(handler_disel_error)?;
+
+    let mut result = Vec::new();
+
+    for user in items {
+        let note_count: i64 = notes::table
+            .filter(notes::user_id.eq(user.id))
+            .select(count(notes::id))
+            .first(conn)
+            .map_err(handler_disel_error)?;
+
+        let follower_count: i64 = follows::table
+            .filter(follows::following_user_id.eq(user.id))
+            .count()
+            .get_result(conn)
+            .map_err(handler_disel_error)?;
+
+        result.push(UserDetailResponse {
+            user,
+            note_count,
+            follower_count,
+            needed_review_product: None,
+        });
+    }
+
+    Ok(result)
+}
+
+fn get_user_info_by_sub(pool: web::Data<Pool>, auth_info: AuthInfo) -> Result<UserDetailResponse, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+    let user_sub = auth_info.sub.clone();
+    let user_id = match get_user_id_by_sub(conn, &user_sub) {
+        Ok(uid) => uid,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info, pool.clone())?.id,
+        Err(e) => return Err(e),
     };
+    let user: User = users
+        .select(USER_COLUMNS)
+        .find(user_id)
+        .first::<User>(conn)
+        .map_err(handler_disel_error)?;
 
     let note_count: i64 = notes::table
         .filter(notes::user_id.eq(user.id))
@@ -204,27 +341,30 @@ fn get_user_info_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<UserD
     .get_result(conn)
     .unwrap_or(false);
 
+    let follower_count: i64 = follows::table
+        .filter(follows::following_user_id.eq(user.id))
+        .count()
+        .get_result(conn)
+        .map_err(handler_disel_error)?;
+
     Ok(UserDetailResponse {
         user,
         note_count,
+        follower_count,
         needed_review_product: Some(needed_review_product),
     })
 }
 
-fn get_user_favorites_by_sub(pool: web::Data<Pool>, user_sub: String) -> Result<Vec<Uuid>, CommonResponseError> {
+fn get_user_favorites_by_sub(pool: web::Data<Pool>, auth_info: AuthInfo) -> Result<Vec<Uuid>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    let user = match users
-        .select(USER_COLUMNS)
-        .filter(sub.eq(&user_sub))
-        .first::<User>(conn)
-    {
-        Ok(user) => user,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?,
-        Err(e) => return Err(handler_disel_error(e)),
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
+        Ok(uid) => uid,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info, pool.clone())?.id,
+        Err(e) => return Err(e),
     };
 
     let favorite_product_ids: Vec<Uuid> = favorites::table
-        .filter(favorites::user_id.eq(user.id))
+        .filter(favorites::user_id.eq(user_id))
         .select(favorites::product_id)
         .load::<Uuid>(conn)
         .map_err(handler_disel_error)?;
@@ -245,9 +385,16 @@ fn db_get_user_info_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<UserDe
         .first(conn)
         .map_err(handler_disel_error)?;
 
+    let follower_count: i64 = follows::table
+        .filter(follows::following_user_id.eq(user.id))
+        .count()
+        .get_result(conn)
+        .map_err(handler_disel_error)?;
+
     Ok(UserDetailResponse {
         user,
         note_count,
+        follower_count,
         needed_review_product: None,
     })
 }
@@ -255,17 +402,20 @@ fn db_get_user_info_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<UserDe
 fn add_single_user(
     pool: web::Data<Pool>,
     item: web::Json<AddUserParams>,
-    user_sub: &str,
+    auth_info: AuthInfo,
 ) -> Result<User, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    register_user(conn, item.nick_name.clone(), user_sub)
+    register_user(conn, item.nick_name.clone(), auth_info, pool.clone())
 }
 
 pub(crate) fn register_user(
     conn: &mut PgConnection,
     provided_nick_name: Option<String>,
-    user_sub: &str,
+    auth_info: AuthInfo,
+    pool: web::Data<Pool>,
 ) -> Result<User, CommonResponseError> {
+    let user_sub = auth_info.sub.as_str();
+    let token = auth_info.token.as_deref();
     let nick: String = if let Some(n) = provided_nick_name.as_deref() {
         n.to_string()
     } else {
@@ -299,32 +449,63 @@ pub(crate) fn register_user(
         sub: user_sub,
         registered: Some(chrono::Utc::now()),
     };
+    
     let res = insert_into(users)
         .values(&new_user)
         .returning(USER_COLUMNS)
-        .get_result(conn)
+        .get_result::<User>(conn)
         .map_err(handler_disel_error)?;
+
+    // 유저 등록 후 프로필 이미지 다운로드 및 저장
+    if let Some(tok) = token {
+        if let Ok(authority) = std::env::var("AUTHORITY") {
+            let url = format!("{}userinfo", authority);
+            let client = reqwest::blocking::Client::new();
+            if let Ok(res_api) = client.get(&url).bearer_auth(tok).send() {
+                if let Ok(json) = res_api.json::<serde_json::Value>() {
+                    if let Some(picture_url) = json.get("picture").and_then(|v| v.as_str()) {
+                        if let Ok(pic_res) = client.get(picture_url).send() {
+                            if let Ok(bytes) = pic_res.bytes() {
+                                let new_img_uuid = Uuid::new_v4();
+                                if crate::handlers::images_handlers::db_create_profile_image_with_file(
+                                    pool.clone(),
+                                    auth_info.clone(),
+                                    new_img_uuid,
+                                    bytes.to_vec(),
+                                ).is_ok() {
+                                    let mut updated_res = res.clone();
+                                    updated_res.image_id = Some(new_img_uuid);
+                                    return Ok(updated_res);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(res)
 }
 
 fn update_single_user_nick(
     db: web::Data<Pool>,
     item: web::Json<SetUserParams>,
-    user_sub: &str,
+    auth_info: AuthInfo,
 ) -> Result<User, CommonResponseError> {
     let conn = &mut db.get().unwrap();
 
     if item.nick_name.is_none() && item.intro.is_none() {
         let user = users
             .select(USER_COLUMNS)
-            .filter(sub.eq(user_sub))
+            .filter(sub.eq(&auth_info.sub))
             .first::<User>(conn)
             .map_err(handler_disel_error)?;
         return Ok(user);
     }
 
     let params = item.into_inner();
-    let res = diesel::update(users.filter(sub.eq(user_sub)))
+    let res = diesel::update(users.filter(sub.eq(&auth_info.sub)))
         .set(&params)
         .returning(USER_COLUMNS)
         .get_result::<User>(conn)
@@ -332,10 +513,151 @@ fn update_single_user_nick(
     Ok(res)
 }
 
-fn delete_single_user(db: web::Data<Pool>, user_sub: &str) -> Result<bool, CommonResponseError> {
+fn delete_single_user(db: web::Data<Pool>, auth_info: AuthInfo) -> Result<bool, CommonResponseError> {
     let conn = &mut db.get().unwrap();
-    let count = delete(users.filter(sub.eq(user_sub)))
+    let count = delete(users.filter(sub.eq(&auth_info.sub)))
         .execute(conn)
         .map_err(handler_disel_error)?;
     Ok(count == 1)
+}
+
+// ============================================
+// MARK: Internal Methods for Follow
+// ============================================
+
+/// follows 테이블에 팔로우 row 삽입
+fn db_follow_user(
+    pool: web::Data<Pool>,
+    auth_info: AuthInfo,
+    params: FollowParams,
+) -> Result<(), CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let my_user_id = get_user_id_by_sub(conn, &auth_info.sub)?;
+
+    // 이미 팔로우 중인지 확인
+    let already_follows: i64 = follows::table
+        .filter(follows::user_id.eq(my_user_id))
+        .filter(follows::following_user_id.eq(params.user_id))
+        .count()
+        .get_result(conn)
+        .map_err(handler_disel_error)?;
+
+    if already_follows > 0 {
+        return Ok(());
+    }
+
+    let new_follow = NewFollow {
+        id: Uuid::new_v4(),
+        user_id: my_user_id,
+        following_user_id: params.user_id,
+    };
+
+    insert_into(follows::table)
+        .values(&new_follow)
+        .execute(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(())
+}
+
+/// 나를 팔로우하는 유저 목록 (follows.following_user_id = 내 user_id)
+fn db_get_followers(
+    pool: web::Data<Pool>,
+    auth_info: AuthInfo,
+) -> Result<Vec<UserDetailResponse>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let my_user_id = get_user_id_by_sub(conn, &auth_info.sub)?;
+
+    // 나를 팔로잉하는 user_id 목록
+    let follower_user_ids: Vec<Uuid> = follows::table
+        .filter(follows::following_user_id.eq(my_user_id))
+        .select(follows::user_id)
+        .load::<Uuid>(conn)
+        .map_err(handler_disel_error)?;
+
+    db_build_user_detail_items(conn, follower_user_ids)
+}
+
+/// 내가 팔로우하는 유저 목록 (follows.user_id = 내 user_id)
+fn db_get_followings(
+    pool: web::Data<Pool>,
+    auth_info: AuthInfo,
+) -> Result<Vec<UserDetailResponse>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let my_user_id = get_user_id_by_sub(conn, &auth_info.sub)?;
+
+    // 내가 팔로잉하는 user_id 목록
+    let following_user_ids: Vec<Uuid> = follows::table
+        .filter(follows::user_id.eq(my_user_id))
+        .select(follows::following_user_id)
+        .load::<Uuid>(conn)
+        .map_err(handler_disel_error)?;
+
+    db_build_user_detail_items(conn, following_user_ids)
+}
+
+/// 팔로우 row 삭제 (follows.id = follow_id, follows.user_id = 내 user_id 확인 후 삭제)
+fn db_unfollow_user(
+    pool: web::Data<Pool>,
+    auth_info: AuthInfo,
+    follow_id: Uuid,
+) -> Result<(), CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let my_user_id = get_user_id_by_sub(conn, &auth_info.sub)?;
+
+    // 해당 row가 나의 팔로우 row인지 확인
+    let follow: Follow = follows::table
+        .find(follow_id)
+        .first::<Follow>(conn)
+        .map_err(handler_disel_error)?;
+
+    if follow.user_id != my_user_id {
+        return Err(CommonResponseError::AuthValidationFail);
+    }
+
+    delete(follows::table.find(follow_id))
+        .execute(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(())
+}
+
+/// user_id 목록으로 UserDetailResponse 목록 조회 (follower_count 내림차순 정렬)
+fn db_build_user_detail_items(
+    conn: &mut diesel::PgConnection,
+    user_ids: Vec<Uuid>,
+) -> Result<Vec<UserDetailResponse>, CommonResponseError> {
+    let mut items: Vec<UserDetailResponse> = Vec::new();
+
+    for uid in user_ids {
+        let user: User = users
+            .select(USER_COLUMNS)
+            .find(uid)
+            .first::<User>(conn)
+            .map_err(handler_disel_error)?;
+
+        let note_count: i64 = notes::table
+            .filter(notes::user_id.eq(uid))
+            .select(count(notes::id))
+            .first(conn)
+            .map_err(handler_disel_error)?;
+
+        // 해당 유저를 팔로우하는 수 (follows.following_user_id = uid)
+        let follower_count: i64 = follows::table
+            .filter(follows::following_user_id.eq(uid))
+            .count()
+            .get_result(conn)
+            .map_err(handler_disel_error)?;
+
+        items.push(UserDetailResponse { user, note_count, follower_count, needed_review_product: None });
+    }
+
+    // follower_count 내림차순 정렬
+    items.sort_by(|a, b| b.follower_count.cmp(&a.follower_count));
+
+    Ok(items)
 }

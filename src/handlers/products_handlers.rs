@@ -4,8 +4,9 @@ use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
 use crate::models::{Barcode, CommonResponse, NewBarcode, NewProduct, Product, ProductLite, NewFavorite};
-use crate::schema::{barcodes, favorites, product_images, products, users};
-use crate::utils::auth::get_sub;
+use crate::schema::{barcodes, favorites, product_images, products};
+use crate::utils::auth::{get_auth_info, AuthInfo};
+use crate::utils::db::get_user_id_by_sub;
 use crate::handlers::users_handler::register_user;
 use chrono::Utc;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
@@ -68,6 +69,17 @@ pub struct SetFavoriteParams {
     pub is_favorite: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FavoriteByUserIdQuery {
+    pub user_id: Uuid,
+    pub page: Option<i64>,
+    pub per: Option<i64>,
+    pub name: Option<String>,
+    #[serde(rename = "type")]
+    pub type_: Option<i16>,
+    pub order_by: Option<String>,
+}
+
 // ============================================
 // MARK: Handler for POST
 // ============================================
@@ -103,7 +115,8 @@ pub async fn create_product_by_ai(
     db: web::Data<Pool>,
     item: web::Json<AiProductRequest>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
+    let user_sub = auth_info.sub;
     let item_inner = item.into_inner();
 
     // 1. Rate Limiting Check
@@ -214,7 +227,8 @@ pub async fn get_product_by_id_with_auth(
     db: web::Data<Pool>,
     in_product_id: web::Path<Uuid>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
+    let user_sub = auth_info.sub;
     let product_detail =
         web::block(move || db_get_product_by_id(db, in_product_id.into_inner(), Some(user_sub))).await??;
     let response = CommonResponse {
@@ -239,7 +253,8 @@ pub async fn get_product_by_barcode_with_auth(
     db: web::Data<Pool>,
     in_barcode_id: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
+    let user_sub = auth_info.sub;
     process_get_product_by_barcode(db, in_barcode_id.into_inner(), Some(user_sub)).await
 }
 
@@ -272,13 +287,13 @@ pub async fn get_products_list(
     Ok(HttpResponse::Ok().json(response))
 }
 
-/// Path: /products/favorite
+/// Path: api/products/favorite
 pub async fn get_favorite_products_list(
     req: HttpRequest,
     db: web::Data<Pool>,
     query: web::Query<ProductListQuery>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
     let query_inner = query.into_inner();
     
     let embedding = if let Some(ref name) = query_inner.name {
@@ -294,7 +309,31 @@ pub async fn get_favorite_products_list(
         None
     };
 
-    let products_list = web::block(move || db_get_my_favorite_products_list(db, query_inner, user_sub, embedding)).await??;
+    let products_list = web::block(move || db_get_my_favorite_products_list(db, query_inner, auth_info, embedding)).await??;
+    let response = CommonResponse {
+        result: true,
+        data: products_list,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /products/favorite?user_id={uuid} (인증 불필요)
+pub async fn get_favorite_products_list_by_user_id(
+    db: web::Data<Pool>,
+    query: web::Query<FavoriteByUserIdQuery>,
+) -> Result<HttpResponse, Error> {
+    let query_inner = query.into_inner();
+    let user_id = query_inner.user_id;
+    let product_query = ProductListQuery {
+        page: query_inner.page,
+        per: query_inner.per,
+        name: None,
+        type_: query_inner.type_,
+        order_by: query_inner.order_by,
+    };
+
+    let products_list = web::block(move || db_get_favorite_products_by_user_id(db, product_query, user_id, None)).await??;
     let response = CommonResponse {
         result: true,
         data: products_list,
@@ -309,8 +348,8 @@ pub async fn set_product_favorite(
     db: web::Data<Pool>,
     item: web::Json<SetFavoriteParams>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
-    let _ = web::block(move || db_set_product_favorite(db, item, user_sub)).await??;
+    let auth_info = get_auth_info(req)?;
+    let _ = web::block(move || db_set_product_favorite(db, item, auth_info)).await??;
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,
         data: None,
@@ -325,10 +364,9 @@ pub async fn get_tasted_products_list(
     db: web::Data<Pool>,
     query: web::Query<ProductListQuery>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
+    let auth_info = get_auth_info(req)?;
     let query_inner = query.into_inner();
-
-    let tasted_products_list = web::block(move || db_get_tasted_products(db, query_inner, user_sub)).await??;
+    let tasted_products_list = web::block(move || db_get_tasted_products(db, query_inner, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: tasted_products_list,
@@ -514,14 +552,13 @@ fn db_get_product_by_id(
     // 나의 노트 ID들 조회
     let mut my_note_ids = None;
     if let Some(user_sub) = sub {
-        let user_id_res = users::table
-            .filter(users::sub.eq(&user_sub))
-            .select(users::id)
-            .first::<Uuid>(conn)
-            .optional()
-            .map_err(handler_disel_error)?;
+        let uid_opt = match get_user_id_by_sub(conn, &user_sub) {
+            Ok(uid) => Some(uid),
+            Err(CommonResponseError::RecordNotFound) => None,
+            Err(e) => return Err(e),
+        };
 
-        if let Some(uid) = user_id_res {
+        if let Some(uid) = uid_opt {
             let note_ids: Vec<Uuid> = crate::schema::notes::table
                 .filter(crate::schema::notes::product_id.eq(in_product_id))
                 .filter(crate::schema::notes::user_id.eq(uid))
@@ -581,14 +618,13 @@ fn db_get_product_by_barcode(
     // 나의 노트 ID들 조회
     let mut my_note_ids = None;
     if let Some(user_sub) = sub {
-        let user_id_res = users::table
-            .filter(users::sub.eq(&user_sub))
-            .select(users::id)
-            .first::<Uuid>(conn)
-            .optional()
-            .map_err(handler_disel_error)?;
+        let uid_opt = match get_user_id_by_sub(conn, &user_sub) {
+            Ok(uid) => Some(uid),
+            Err(CommonResponseError::RecordNotFound) => None,
+            Err(e) => return Err(e),
+        };
 
-        if let Some(uid) = user_id_res {
+        if let Some(uid) = uid_opt {
             let note_ids: Vec<Uuid> = crate::schema::notes::table
                 .filter(crate::schema::notes::product_id.eq(product_id))
                 .filter(crate::schema::notes::user_id.eq(uid))
@@ -779,10 +815,30 @@ async fn process_get_product_by_barcode(
     }
 }
 
+/// sub를 통해 user_id를 조회한 뒤, 공통 함수에 위임
 fn db_get_my_favorite_products_list(
     pool: web::Data<Pool>,
     query: ProductListQuery,
-    user_sub: String,
+    auth_info: AuthInfo,
+    embedding: Option<pgvector::Vector>,
+) -> Result<Vec<ProductListItem>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    // sub로 유저 ID 조회 (없으면 자동 등록)
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
+        Ok(id) => id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(e) => return Err(e),
+    };
+
+    db_get_favorite_products_by_user_id(pool, query, user_id, embedding)
+}
+
+/// user_id(UUID)를 직접 받아 즐겨찾기 제품 목록을 반환하는 공통 함수
+fn db_get_favorite_products_by_user_id(
+    pool: web::Data<Pool>,
+    query: ProductListQuery,
+    user_id: Uuid,
     embedding: Option<pgvector::Vector>,
 ) -> Result<Vec<ProductListItem>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
@@ -790,17 +846,6 @@ fn db_get_my_favorite_products_list(
     let page = query.page.unwrap_or(1);
     let per = query.per.unwrap_or(10);
     let offset = (page - 1) * per;
-
-    // 유저 ID 조회
-    let user_id = match users::table
-        .filter(users::sub.eq(&user_sub))
-        .select(users::id)
-        .first::<Uuid>(conn)
-    {
-        Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
-        Err(e) => return Err(handler_disel_error(e)),
-    };
 
     let favorite_product_ids: Vec<Uuid> = favorites::table
         .filter(favorites::user_id.eq(user_id))
@@ -814,6 +859,11 @@ fn db_get_my_favorite_products_list(
     let mut products_query = products::table
         .filter(products::id.eq_any(&favorite_product_ids))
         .into_boxed();
+
+    // 타입 필터링
+    if let Some(type_filter) = query.type_ {
+        products_query = products_query.filter(products::type_.eq(type_filter));
+    }
 
     // 이름 임베딩 값이 있으면 거리 순 정렬
     if let Some(emb) = embedding {
@@ -831,7 +881,6 @@ fn db_get_my_favorite_products_list(
     let mut result = Vec::new();
 
     for product in products_list {
-        // 제품 이미지 ID들 조회 (최대 3개)
         let image_ids: Vec<Uuid> = product_images::table
             .filter(product_images::product_id.eq(product.id))
             .select(product_images::id)
@@ -851,19 +900,15 @@ fn db_get_my_favorite_products_list(
 fn db_set_product_favorite(
     pool: web::Data<Pool>,
     item: web::Json<SetFavoriteParams>,
-    user_sub: String,
+    auth_info: AuthInfo,
 ) -> Result<(), CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 ID 조회
-    let user_id = match users::table
-        .filter(users::sub.eq(&user_sub))
-        .select(users::id)
-        .first::<Uuid>(conn)
-    {
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
-        Err(e) => return Err(handler_disel_error(e)),
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(e) => return Err(e),
     };
 
     if item.is_favorite {
@@ -901,7 +946,7 @@ fn db_set_product_favorite(
 fn db_get_tasted_products(
     pool: web::Data<Pool>,
     query: ProductListQuery,
-    user_sub: String,
+    auth_info: AuthInfo,
 ) -> Result<Vec<ProductTastedListItem>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
@@ -910,14 +955,10 @@ fn db_get_tasted_products(
     let offset = (page - 1) * per;
 
     // 유저 ID 조회
-    let user_id = match users::table
-        .filter(users::sub.eq(&user_sub))
-        .select(users::id)
-        .first::<Uuid>(conn)
-    {
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => crate::handlers::users_handler::register_user(conn, None, &user_sub)?.id,
-        Err(e) => return Err(handler_disel_error(e)),
+        Err(CommonResponseError::RecordNotFound) => crate::handlers::users_handler::register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(e) => return Err(e),
     };
 
     // 2. Note와 Product를 Join하여 필터링 및 DB 상 페이징 실행 (PostgreSQL DISTINCT ON 지원 활용 불가 시 대안)

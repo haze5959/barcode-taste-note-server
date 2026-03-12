@@ -38,6 +38,17 @@ diesel::table! {
     use diesel::sql_types::*;
     use pgvector::sql_types::Vector;
 
+    follows (id) {
+        user_id -> Uuid,
+        following_user_id -> Uuid,
+        id -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     notes (id) {
         id -> Uuid,
         user_id -> Uuid,
@@ -126,6 +137,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     barcodes,
     favorites,
     flavor_tags,
+    follows,
     notes,
     product_images,
     products,

@@ -22,6 +22,7 @@ pub async fn validator(
         Ok(claims) => {
             debug!("claims {:?}", claims);
             req.extensions_mut().insert(claims.sub);
+            req.extensions_mut().insert(crate::utils::auth::RawToken(credentials.token().to_string()));
             Ok(req)
         }
         Err(_) => {

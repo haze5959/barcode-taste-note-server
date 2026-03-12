@@ -9,7 +9,8 @@ use crate::models::{CommonResponse, User, ProductLite, Note, Report, NewReport};
 use crate::schema::{product_images, reports, users, products, notes};
 use crate::handlers::products_handlers::ProductListItem;
 use crate::handlers::notes_handlers::NoteResponse;
-use crate::utils::auth::get_sub;
+use crate::utils::auth::{get_auth_info, AuthInfo};
+use crate::utils::db::get_user_id_by_sub;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use chrono::Utc;
 use lazy_static::lazy_static;
@@ -101,8 +102,8 @@ pub async fn get_my_reports(
     req: HttpRequest,
     db: web::Data<Pool>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
-    let reports = web::block(move || db_get_my_reports(db, user_sub)).await??;
+    let auth_info = get_auth_info(req)?;
+    let reports = web::block(move || db_get_my_reports(db, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: reports,
@@ -121,8 +122,8 @@ pub async fn create_report(
     db: web::Data<Pool>,
     item: web::Json<CreateReportParams>,
 ) -> Result<HttpResponse, Error> {
-    let user_sub = get_sub(req)?;
-    let report = web::block(move || db_create_report(db, item, user_sub)).await??;
+    let auth_info = get_auth_info(req)?;
+    let report = web::block(move || db_create_report(db, item, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: report,
@@ -230,19 +231,15 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
 
 fn db_get_my_reports(
     pool: web::Data<Pool>,
-    user_sub: String,
+    auth_info: AuthInfo,
 ) -> Result<Vec<Report>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // sub로 user_id 조회
-    let user_id = match users::table
-        .filter(users::sub.eq(&user_sub))
-        .select(users::id)
-        .first::<Uuid>(conn)
-    {
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => register_user(conn, None, &user_sub)?.id,
-        Err(e) => return Err(handler_disel_error(e)),
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(e) => return Err(e),
     };
 
     // user_id에 해당하는 reports 전부 조회
@@ -257,19 +254,15 @@ fn db_get_my_reports(
 fn db_create_report(
     pool: web::Data<Pool>,
     item: web::Json<CreateReportParams>,
-    user_sub: String,
+    auth_info: AuthInfo,
 ) -> Result<Report, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // sub로 user_id 조회 (못 찾으면 실패)
-    let user_id = match users::table
-        .filter(users::sub.eq(&user_sub))
-        .select(users::id)
-        .first::<Uuid>(conn)
-    {
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(diesel::result::Error::NotFound) => return Err(CommonResponseError::AuthValidationFail),
-        Err(e) => return Err(handler_disel_error(e)),
+        Err(CommonResponseError::RecordNotFound) => return Err(CommonResponseError::AuthValidationFail),
+        Err(e) => return Err(e),
     };
 
     // product_id 유무에 따라 type 결정: 있으면 0, 없으면 1
