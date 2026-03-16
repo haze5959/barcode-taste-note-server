@@ -3,6 +3,7 @@ use serde::Deserialize;
 use std::env;
 use regex::Regex;
 use std::sync::OnceLock;
+use log::error;
 
 #[derive(Deserialize)]
 struct DeepLResponse {
@@ -53,10 +54,10 @@ pub async fn translate_to_english_if_cjk(text: &str) -> String {
             }
         },
         Ok(response) => {
-            eprintln!("[DeepL Error] API returned status: {}", response.status());
+            error!("[DeepL Error] API returned status: {}", response.status());
         }
         Err(e) => {
-            eprintln!("[DeepL Request Error] {}", e);
+            error!("[DeepL Request Error] {}", e);
         }
     }
 

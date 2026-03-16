@@ -6,7 +6,7 @@ use actix_web::web::Bytes;
 use actix_web::{body::MessageBody, body::to_bytes, dev::ServiceResponse};
 use serde_json::Value;
 use std::fmt::Debug;
-use std::str;
+use log::error;
 
 pub fn print_response_model<T: Debug>(model: &CommonResponse<T>) {
     println!("[Model]: {:?}", model);
@@ -32,7 +32,7 @@ pub fn print_json_log(bytes: &Bytes) {
         }
         Err(e) => {
             // 로그 찍기
-            eprintln!(
+            error!(
                 "[JSON Parse Error] {}\nRaw body: {}",
                 e,
                 str::from_utf8(&bytes).unwrap_or("<non-UTF8 body>")

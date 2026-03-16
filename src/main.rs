@@ -1,7 +1,7 @@
 use actix_web::{App, HttpServer, middleware::Logger, web};
 use actix_web_httpauth::middleware::HttpAuthentication;
-use actix_files::Files;
 use dotenv::dotenv;
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 
 use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
@@ -20,12 +20,25 @@ async fn main() -> std::io::Result<()> {
         .build(ConnectionManager::<PgConnection>::new(database_url))
         .expect("Failed to create pool.");
 
+    let r2_client = barcode_taste_note::utils::r2::R2Client::new().await;
+    let r2_data = web::Data::new(r2_client);
+
+    // load TLS keys
+    // to create a self-signed temporary cert for testing:
+    // `openssl req -x509 -newkey rsa:4096 -nodes -keyout key.pem -out cert.pem -days 365 -subj '/CN=localhost'`
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+    builder
+        .set_private_key_file("ssl/server.key", SslFiletype::PEM)
+        .expect("Failed to load private key");
+    builder
+        .set_certificate_chain_file("ssl/server.crt")
+        .expect("Failed to load certificate");
+
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
             .app_data(web::Data::new(pool.clone()))
-            // Static files service
-            .service(Files::new("/static/images", "./static/images").show_files_listing())
+            .app_data(r2_data.clone())
             // Public routes
             // Users
             .route("/users", web::get().to(handlers::users_handler::get_users))
@@ -95,7 +108,7 @@ async fn main() -> std::io::Result<()> {
                     )
             )
     })
-    .bind("172.30.1.21:5959")?
+    .bind_openssl("172.30.1.21:5959", builder)?
     .run()
     .await
 }

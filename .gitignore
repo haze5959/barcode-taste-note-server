@@ -1,5 +1,6 @@
 target/*
 static/*
+ssl/*
 crawler/target/*
 .env
 package.json

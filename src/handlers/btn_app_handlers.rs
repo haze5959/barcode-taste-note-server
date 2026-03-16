@@ -4,13 +4,14 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::handlers::users_handler::register_user;
 use crate::models::{CommonResponse, User, ProductLite, Note, Report, NewReport};
 use crate::schema::{product_images, reports, users, products, notes};
 use crate::handlers::products_handlers::ProductListItem;
 use crate::handlers::notes_handlers::NoteResponse;
 use crate::utils::auth::{get_auth_info, AuthInfo};
 use crate::utils::db::get_user_id_by_sub;
+use crate::utils::r2::R2Client;
+use crate::handlers::users_handler::register_user;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use chrono::Utc;
 use lazy_static::lazy_static;
@@ -101,9 +102,10 @@ pub async fn get_home_info(db: web::Data<Pool>) -> Result<HttpResponse, Error> {
 pub async fn get_my_reports(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
-    let reports = web::block(move || db_get_my_reports(db, auth_info)).await??;
+    let reports = web::block(move || db_get_my_reports(db, r2, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: reports,
@@ -231,6 +233,7 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
 
 fn db_get_my_reports(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     auth_info: AuthInfo,
 ) -> Result<Vec<Report>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
@@ -238,7 +241,7 @@ fn db_get_my_reports(
     // sub로 user_id 조회
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
         Err(e) => return Err(e),
     };
 

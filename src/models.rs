@@ -44,6 +44,7 @@ pub struct NewUser<'a> {
     pub id: Uuid,
     pub nick_name: &'a str,
     pub sub: &'a str,
+    pub image_id: Option<Uuid>,
     pub registered: Option<DateTime<Utc>>,
 }
 

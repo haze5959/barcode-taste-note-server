@@ -10,6 +10,7 @@ use crate::schema::follows;
 use crate::schema::notes;
 use crate::utils::auth::{get_auth_info, AuthInfo};
 use crate::utils::db::get_user_id_by_sub;
+use crate::utils::r2::R2Client;
 use crate::errors::handler_disel_error;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use diesel::dsl::{count, delete, exists, insert_into, select};
@@ -66,9 +67,13 @@ pub async fn get_users(db: web::Data<Pool>) -> Result<HttpResponse, Error> {
 }
 
 // Path: /users/me
-pub async fn get_my_info(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpResponse, Error> {
+pub async fn get_my_info(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req.clone())?;
-    let user_info = web::block(move || get_user_info_by_sub(db, auth_info)).await??;
+    let user_info = web::block(move || get_user_info_by_sub(db, r2, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: user_info,
@@ -92,9 +97,13 @@ pub async fn search_users(
 }
 
 // Path: /users/favorites
-pub async fn get_my_favorites(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpResponse, Error> {
+pub async fn get_my_favorites(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req.clone())?;
-    let user_info = web::block(move || get_user_favorites_by_sub(db, auth_info)).await??;
+    let user_info = web::block(move || get_user_favorites_by_sub(db, r2, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: user_info,
@@ -155,10 +164,11 @@ pub async fn get_followings(
 pub async fn add_user(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     item: web::Json<AddUserParams>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req.clone())?;
-    let user_info = web::block(move || add_single_user(db, item, auth_info)).await??;
+    let user_info = web::block(move || add_single_user(db, r2, item, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: user_info,
@@ -313,12 +323,18 @@ fn db_search_users(
     Ok(result)
 }
 
-fn get_user_info_by_sub(pool: web::Data<Pool>, auth_info: AuthInfo) -> Result<UserDetailResponse, CommonResponseError> {
+fn get_user_info_by_sub(
+    pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    auth_info: AuthInfo,
+) -> Result<UserDetailResponse, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let user_sub = auth_info.sub.clone();
     let user_id = match get_user_id_by_sub(conn, &user_sub) {
         Ok(uid) => uid,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info, pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => {
+            register_user(conn, None, auth_info, r2)?.id
+        },
         Err(e) => return Err(e),
     };
     let user: User = users
@@ -355,11 +371,15 @@ fn get_user_info_by_sub(pool: web::Data<Pool>, auth_info: AuthInfo) -> Result<Us
     })
 }
 
-fn get_user_favorites_by_sub(pool: web::Data<Pool>, auth_info: AuthInfo) -> Result<Vec<Uuid>, CommonResponseError> {
+fn get_user_favorites_by_sub(
+    pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    auth_info: AuthInfo,
+) -> Result<Vec<Uuid>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(uid) => uid,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info, pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info, r2)?.id,
         Err(e) => return Err(e),
     };
 
@@ -401,21 +421,22 @@ fn db_get_user_info_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<UserDe
 
 fn add_single_user(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     item: web::Json<AddUserParams>,
     auth_info: AuthInfo,
 ) -> Result<User, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    register_user(conn, item.nick_name.clone(), auth_info, pool.clone())
+    register_user(conn, item.nick_name.clone(), auth_info.clone(), r2)
 }
 
 pub(crate) fn register_user(
     conn: &mut PgConnection,
     provided_nick_name: Option<String>,
     auth_info: AuthInfo,
-    pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
 ) -> Result<User, CommonResponseError> {
     let user_sub = auth_info.sub.as_str();
-    let token = auth_info.token.as_deref();
+    let _token = auth_info.token.as_deref();
     let nick: String = if let Some(n) = provided_nick_name.as_deref() {
         n.to_string()
     } else {
@@ -441,12 +462,19 @@ pub(crate) fn register_user(
         return Err(CommonResponseError::DuplicatedError);
     }
 
-    // 유저 추가
+    // 1. 유저 ID 생성
     let new_uuid = Uuid::new_v4();
+    
+    // 2. 프로필 이미지 업로드
+    let rt = actix_rt::Runtime::new().unwrap();
+    let is_uploaded = rt.block_on(upload_profile_from_auth0(r2, auth_info.clone(), new_uuid));
+
+    // 3. 유저 추가
     let new_user = NewUser {
         id: new_uuid,
         nick_name: &nick,
         sub: user_sub,
+        image_id: if is_uploaded { Some(new_uuid) } else { None },
         registered: Some(chrono::Utc::now()),
     };
     
@@ -456,27 +484,21 @@ pub(crate) fn register_user(
         .get_result::<User>(conn)
         .map_err(handler_disel_error)?;
 
-    // 유저 등록 후 프로필 이미지 다운로드 및 저장
+    Ok(res)
+}
+
+async fn upload_profile_from_auth0(r2: web::Data<R2Client>, auth_info: AuthInfo, user_id: Uuid) -> bool {
+    let token = auth_info.token.as_deref();
     if let Some(tok) = token {
         if let Ok(authority) = std::env::var("AUTHORITY") {
             let url = format!("{}userinfo", authority);
-            let client = reqwest::blocking::Client::new();
-            if let Ok(res_api) = client.get(&url).bearer_auth(tok).send() {
-                if let Ok(json) = res_api.json::<serde_json::Value>() {
+            let client = reqwest::Client::new();
+            if let Ok(res_api) = client.get(&url).bearer_auth(tok).send().await {
+                if let Ok(json) = res_api.json::<serde_json::Value>().await {
                     if let Some(picture_url) = json.get("picture").and_then(|v| v.as_str()) {
-                        if let Ok(pic_res) = client.get(picture_url).send() {
-                            if let Ok(bytes) = pic_res.bytes() {
-                                let new_img_uuid = Uuid::new_v4();
-                                if crate::handlers::images_handlers::db_create_profile_image_with_file(
-                                    pool.clone(),
-                                    auth_info.clone(),
-                                    new_img_uuid,
-                                    bytes.to_vec(),
-                                ).is_ok() {
-                                    let mut updated_res = res.clone();
-                                    updated_res.image_id = Some(new_img_uuid);
-                                    return Ok(updated_res);
-                                }
+                        if let Ok(pic_res) = client.get(picture_url).send().await {
+                            if let Ok(bytes) = pic_res.bytes().await {
+                                return r2.upload_image(&format!("images/profile/{}", user_id), bytes.to_vec(), "image/jpeg").await.is_ok();
                             }
                         }
                     }
@@ -484,8 +506,7 @@ pub(crate) fn register_user(
             }
         }
     }
-
-    Ok(res)
+    false
 }
 
 fn update_single_user_nick(

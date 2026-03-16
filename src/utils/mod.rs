@@ -1,10 +1,10 @@
 pub mod logger;
 pub mod auth;
 pub mod response_mapper;
-pub mod image_file;
 pub mod openai;
 pub mod scraper;
 pub mod translator;
 pub mod rate_limit;
 pub mod gemini;
 pub mod db;
+pub mod r2;

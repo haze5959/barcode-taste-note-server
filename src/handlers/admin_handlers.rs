@@ -7,6 +7,7 @@ use crate::models::{CommonResponse, Product, Report};
 use crate::schema::{barcodes, favorites, flavor_tags, notes, product_images, products, reports};
 use crate::utils::auth::get_auth_info;
 use crate::utils::openai::get_embedding;
+use crate::utils::r2::R2Client;
 
 use actix_multipart::form::{MultipartForm, tempfile::TempFile, text::Text};
 use actix_web::{Error, HttpRequest, HttpResponse, web};
@@ -16,6 +17,7 @@ use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use uuid::Uuid;
+use log::error;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdminProductResponse {
@@ -371,6 +373,7 @@ pub async fn merge_admin_product(
 // ============================================
 pub async fn upload_admin_image(
     req: HttpRequest,
+    r2: web::Data<R2Client>,
     MultipartForm(form): MultipartForm<AdminImageUploadForm>,
 ) -> Result<HttpResponse, Error> {
     validate_admin(&req)?;
@@ -381,31 +384,18 @@ pub async fn upload_admin_image(
 
     let temp_file_path = form.image.file.path();
     let mut image_file = std::fs::File::open(temp_file_path).map_err(|e| {
-        eprintln!("Failed to open temp file: {}", e);
+        error!("Failed to open temp file: {}", e);
         actix_web::error::ErrorInternalServerError("Failed to read uploaded file")
     })?;
 
     let mut image_bytes = Vec::new();
     image_file.read_to_end(&mut image_bytes).map_err(|e| {
-        eprintln!("Failed to read temp file: {}", e);
+        error!("Failed to read temp file: {}", e);
         actix_web::error::ErrorInternalServerError("Failed to read uploaded file")
     })?;
 
-    web::block(move || {
-        let path = format!("static/images/{}", image_id);
-        std::fs::create_dir_all("static/images").map_err(|e| e.to_string())?;
-        
-        // Validate and normalize image to JPEG
-        let img = image::load_from_memory(&image_bytes)
-            .map_err(|e| format!("Invalid image file: {}", e))?;
-            
-        img.save_with_format(&path, image::ImageFormat::Jpeg)
-            .map_err(|e| format!("Failed to save image as JPEG: {}", e))?;
-            
-        Ok::<(), String>(())
-    })
-    .await?
-    .map_err(|e| actix_web::error::ErrorBadRequest(e))?;
+    // R2 업로드
+    r2.upload_image(&format!("images/{}", image_id), image_bytes, "image/jpeg").await?;
 
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,

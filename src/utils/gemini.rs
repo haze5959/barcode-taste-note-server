@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::path::PathBuf;
 use tokio::fs;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use tokio::io::AsyncWriteExt;
+use log::error;
 
 #[derive(Serialize)]
 struct GeminiRequest {
@@ -52,17 +52,16 @@ pub struct CandidatePart {
 pub struct GeminiProductAnalysis {
     pub name: String,
     pub description: String,
-    pub category: String,
-    pub image_url: Option<String>,
+    pub category: String
 }
 
-pub async fn analyze_image_with_gemini(image_id_str: &str) -> Result<GeminiProductAnalysis, String> {
-    let path = PathBuf::from("static").join("images").join(image_id_str);
+pub async fn analyze_image_with_gemini(r2: &crate::utils::r2::R2Client, image_id_str: &str) -> Result<GeminiProductAnalysis, String> {
+    let key = format!("images/{}", image_id_str);
     
     let result: Result<(GeminiProductAnalysis, String), String> = async {
         let api_key = env::var("GEMINI_API_KEY").map_err(|_| "GEMINI_API_KEY is missing".to_string())?;
         
-        let image_bytes = fs::read(&path).await.map_err(|e| format!("Failed to read image at {:?}: {}", path, e))?;
+        let image_bytes = r2.get_image(&key).await.map_err(|e| format!("Failed to read image from R2 {}: {:?}", key, e))?;
         let base64_image = STANDARD.encode(image_bytes);
 
         let prompt = "Analyze the provided image and identify the alcoholic beverage or F&B product. \
@@ -73,8 +72,7 @@ pub async fn analyze_image_with_gemini(image_id_str: &str) -> Result<GeminiProdu
         STRICTLY UNDER 200 characters. USE factual, encyclopedia-style language. \
         Avoid empty fillers or speculative hedges. For well-known products, you MUST include standard market specifications. \
         4. Identify the category as strictly one of: whisky, wine, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage. \
-        5. For `image_url`, search Google Images and provide a highly reliable, direct public link (e.g., ending in .jpg or .png) to a professional studio photo of the bottle. Do not provide a webpage URL; it must be a direct image source. If a reliable image link cannot be found, omit the `image_url` field. \
-        Return strictly in JSON format matching this structure: {\"name\": \"...\", \"description\": \"...\", \"category\": \"...\", \"image_url\": \"...\"} \
+        Return strictly in JSON format matching this structure: {\"name\": \"...\", \"description\": \"...\", \"category\": \"...\"} \
         Unless Rule 1 applies, the `name`, `description`, and `category` fields are mandatory.";
 
         let request_body = GeminiRequest {
@@ -139,20 +137,6 @@ pub async fn analyze_image_with_gemini(image_id_str: &str) -> Result<GeminiProdu
         let _ = file.write_all(log_line.as_bytes()).await;
     }
 
-    // Move image to static/images/deleted/ and ensure .jpeg extension
-    let deleted_dir = PathBuf::from("static").join("images").join("deleted");
-    let _ = fs::create_dir_all(&deleted_dir).await;
-    let new_filename = format!("{}.jpeg", image_id_str.trim_end_matches(".jpeg").trim_end_matches(".jpg"));
-    let new_path = deleted_dir.join(new_filename);
-    
-    if fs::metadata(&path).await.is_ok() {
-        if fs::rename(&path, &new_path).await.is_err() {
-            if fs::copy(&path, &new_path).await.is_ok() {
-                let _ = fs::remove_file(&path).await;
-            }
-        }
-    }
-
     analysis_res
 }
 
@@ -193,7 +177,7 @@ pub async fn generate_product_info_with_gemini(product_name: &str) -> Option<Gem
 
     if !res.status().is_success() {
         let err_text = res.text().await.unwrap_or_default();
-        eprintln!("[Scraper Gemini Error] {}", err_text);
+        error!("[Scraper Gemini Error] {}", err_text);
         return None;
     }
 

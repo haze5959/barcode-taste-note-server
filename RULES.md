@@ -13,6 +13,7 @@ Rust와 Actix-web을 기반으로 구축되었으며, PostgreSQL을 데이터베
 | **Database** | PostgreSQL | |
 | **ORM** | Diesel 2.2 | `diesel`, `r2d2` |
 | **Serialization**| Serde | JSON handling |
+| **CDN** | Cloudflare R2 | Image Storage |
 | **Logging** | env_logger | |
 
 ## 3. Project Structure
@@ -32,7 +33,6 @@ Rust와 Actix-web을 기반으로 구축되었으며, PostgreSQL을 데이터베
 │   ├── errors.rs       # Custom Error Types
 │   ├── main.rs         # App Entry point & Route definitions
 │   └── auth.rs         # JWT Authentication Logic
-├── static/             # Static files (images)
 ├── tests/              # Integration tests
 └── RULES.md            # This file
 ```

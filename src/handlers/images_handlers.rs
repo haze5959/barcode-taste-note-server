@@ -1,23 +1,23 @@
 use crate::Pool;
-use crate::constants::IMAGE_DIR;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::models::{CommonResponse, ProductImage, NewProductImage};
 use crate::schema::{product_images, users};
 use crate::errors::handler_disel_error;
-use crate::handlers::users_handler::register_user;
 use crate::utils::auth::{get_auth_info, AuthInfo};
 use crate::utils::db::get_user_id_by_sub;
-use crate::utils::image_file::move_image_to_deleted;
-use chrono::Utc;
+use crate::utils::r2::R2Client;
+use crate::handlers::users_handler::register_user;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use actix_multipart::form::{MultipartForm, tempfile::TempFile, text::Text};
 use diesel::dsl::{insert_into, delete};
+use chrono::Utc;
 use diesel::expression_methods::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use std::io::{Read, Write};
+use std::io::Read;
+use log::error;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ImageUploadResponse {
@@ -59,6 +59,7 @@ pub struct ProfileImageUploadForm {
 pub async fn upload_image(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     MultipartForm(form): MultipartForm<ImageUploadForm>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
@@ -71,20 +72,24 @@ pub async fn upload_image(
     // 임시 파일에서 이미지 데이터 읽기
     let temp_file_path = form.image.file.path();
     let mut image_file = std::fs::File::open(temp_file_path).map_err(|e| {
-        eprintln!("Failed to open temp file: {}", e);
+        error!("Failed to open temp file: {}", e);
         actix_web::error::ErrorInternalServerError("Failed to read uploaded file")
     })?;
 
     let mut image_bytes = Vec::new();
     image_file.read_to_end(&mut image_bytes).map_err(|e| {
-        eprintln!("Failed to read temp file: {}", e);
+        error!("Failed to read temp file: {}", e);
         actix_web::error::ErrorInternalServerError("Failed to read uploaded file")
     })?;
 
+    let r2_for_db = r2.clone();
     let image = web::block(move || {
-        db_create_image_with_file(db, product_id, note_id, Some(auth_info), image_id, image_bytes)
+        db_add_product_image(db, r2_for_db, product_id, note_id, Some(auth_info), image_id)
     })
     .await??;
+
+    // R2 업로드
+    r2.upload_image(&format!("images/{}", image_id), image_bytes, "image/jpeg").await?;
 
     let response = CommonResponse {
         result: true,
@@ -99,29 +104,40 @@ pub async fn upload_image(
 pub async fn upload_profile_image(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     MultipartForm(form): MultipartForm<ProfileImageUploadForm>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let image_id = Uuid::parse_str(&form.id.0)
         .map_err(|_| CommonResponseError::InvalidParameter)?;
 
-    // 임시 파일에서 이미지 데이터 읽기
+    // 이미지 데이터 읽기
     let temp_file_path = form.image.file.path();
     let mut image_file = std::fs::File::open(temp_file_path).map_err(|e| {
-        eprintln!("Failed to open temp file: {}", e);
+        error!("Failed to open temp file: {}", e);
         actix_web::error::ErrorInternalServerError("Failed to read uploaded file")
     })?;
 
     let mut image_bytes = Vec::new();
     image_file.read_to_end(&mut image_bytes).map_err(|e| {
-        eprintln!("Failed to read temp file: {}", e);
+        error!("Failed to read temp file: {}", e);
         actix_web::error::ErrorInternalServerError("Failed to read uploaded file")
     })?;
 
-    let image_uuid = web::block(move || {
-        db_create_profile_image_with_file(db, auth_info, image_id, image_bytes)
+    let (image_uuid, old_image_id) = web::block(move || {
+        db_create_profile_image_with_db(db, auth_info, image_id)
     })
     .await??;
+
+    // 기존 이미지가 있다면 R2에서 이동 (Soft Delete)
+    if let Some(old_id) = old_image_id {
+        if let Err(e) = r2.move_to_deleted(&format!("images/profile/{}", old_id)).await {
+            error!("[R2 Soft Delete Error] Failed to move old profile image {}: {:?}", old_id, e);
+        }
+    }
+
+    // R2 업로드
+    r2.upload_image(&format!("images/profile/{}", image_id), image_bytes, "image/jpeg").await?;
 
     let response = CommonResponse {
         result: true,
@@ -157,15 +173,17 @@ pub async fn get_images(
 pub async fn delete_image(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     image_id: web::Path<Uuid>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let image_uuid = image_id.into_inner();
 
-    let _delete_result = web::block(move || db_delete_image(db, image_uuid, auth_info)).await??;
+    let r2_for_db = r2.clone();
+    let _delete_result = web::block(move || db_delete_image(db, r2_for_db, image_uuid, auth_info)).await??;
 
-    // 이미지 파일을 deleted 폴더로 이동
-    let _file_delete_result = move_image_to_deleted(image_uuid);
+    // R2에서 이미지를 삭제(이동)
+    r2.move_to_deleted(&format!("images/{}", image_uuid)).await?;
 
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,
@@ -208,13 +226,13 @@ fn db_get_images(
     Ok(images_list)
 }
 
-fn db_create_image_with_file(
+fn db_add_product_image(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     product_id: Option<Uuid>,
     note_id: Option<Uuid>,
     auth_info: Option<AuthInfo>,
     image_id: Uuid,
-    image_bytes: Vec<u8>,
 ) -> Result<ProductImage, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
@@ -222,7 +240,7 @@ fn db_create_image_with_file(
     let user_id: Option<Uuid> = if let Some(auth_info) = auth_info {
         let id = match get_user_id_by_sub(conn, &auth_info.sub) {
             Ok(id) => id,
-            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
             Err(e) => return Err(e),
         };
         Some(id)
@@ -243,29 +261,12 @@ fn db_create_image_with_file(
         .get_result::<ProductImage>(conn)
         .map_err(handler_disel_error)?;
 
-    // 이미지 폴더 생성 (없으면)
-    std::fs::create_dir_all(IMAGE_DIR).map_err(|e| {
-        eprintln!("Failed to create image directory: {}", e);
-        CommonResponseError::InternalServerError
-    })?;
-
-    // 이미지 파일 저장
-    let file_path = format!("{}/{}", IMAGE_DIR, image_id);
-    let mut file: std::fs::File = std::fs::File::create(&file_path).map_err(|e| {
-        eprintln!("Failed to create image file: {}", e);
-        CommonResponseError::InternalServerError
-    })?;
-
-    file.write_all(&image_bytes).map_err(|e| {
-        eprintln!("Failed to write image file: {}", e);
-        CommonResponseError::InternalServerError
-    })?;
-
     Ok(image)
 }
 
 fn db_delete_image(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     image_id: Uuid,
     auth_info: AuthInfo,
 ) -> Result<bool, CommonResponseError> {
@@ -274,7 +275,7 @@ fn db_delete_image(
     // 유저 ID 조회
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2.clone())?.id,
         Err(e) => return Err(e),
     };
 
@@ -296,12 +297,11 @@ fn db_delete_image(
     Ok(count == 1)
 }
 
-pub fn db_create_profile_image_with_file(
+pub fn db_create_profile_image_with_db(
     pool: web::Data<Pool>,
     auth_info: AuthInfo,
     new_image_id: Uuid,
-    image_bytes: Vec<u8>,
-) -> Result<Uuid, CommonResponseError> {
+) -> Result<(Uuid, Option<Uuid>), CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
     // 유저 조회
@@ -315,45 +315,11 @@ pub fn db_create_profile_image_with_file(
         Err(e) => return Err(handler_disel_error(e)),
     };
 
-    // 기존 이미지가 있으면 deleted 폴더로 이동
-    if let Some(existing_image_id) = user.image_id {
-        let original_path = format!("static/images/profile/{}", existing_image_id);
-        let deleted_dir = "static/images/profile/deleted";
-        let deleted_path = format!("{}/{}", deleted_dir, existing_image_id);
-
-        if std::path::Path::new(&original_path).exists() {
-            let _ = std::fs::create_dir_all(deleted_dir);
-            if std::fs::rename(&original_path, &deleted_path).is_err() {
-                if std::fs::copy(&original_path, &deleted_path).is_ok() {
-                    let _ = std::fs::remove_file(&original_path);
-                }
-            }
-        }
-    }
-
-    // 새 이미지 저장
-    let profile_dir = "static/images/profile";
-    std::fs::create_dir_all(profile_dir).map_err(|e| {
-        eprintln!("Failed to create profile image directory: {}", e);
-        CommonResponseError::InternalServerError
-    })?;
-
-    let file_path = format!("{}/{}", profile_dir, new_image_id);
-    let mut file = std::fs::File::create(&file_path).map_err(|e| {
-        eprintln!("Failed to create profile image file: {}", e);
-        CommonResponseError::InternalServerError
-    })?;
-
-    file.write_all(&image_bytes).map_err(|e| {
-        eprintln!("Failed to write profile image file: {}", e);
-        CommonResponseError::InternalServerError
-    })?;
-
     // 유저 정보 업데이트
     diesel::update(users::table.find(user.id))
         .set(users::image_id.eq(Some(new_image_id)))
         .execute(conn)
         .map_err(handler_disel_error)?;
 
-    Ok(new_image_id)
+    Ok((new_image_id, user.image_id))
 }

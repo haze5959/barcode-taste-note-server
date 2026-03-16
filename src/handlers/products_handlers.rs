@@ -7,6 +7,7 @@ use crate::models::{Barcode, CommonResponse, NewBarcode, NewProduct, Product, Pr
 use crate::schema::{barcodes, favorites, product_images, products};
 use crate::utils::auth::{get_auth_info, AuthInfo};
 use crate::utils::db::get_user_id_by_sub;
+use crate::utils::r2::R2Client;
 use crate::handlers::users_handler::register_user;
 use chrono::Utc;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
@@ -16,6 +17,7 @@ use diesel::{Connection, OptionalExtension};
 use pgvector::VectorExpressionMethods;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use log::error;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProductParams {
@@ -95,7 +97,7 @@ pub async fn create_product(
     let embedding = match crate::utils::openai::get_embedding(&item_inner.name).await {
         Ok(vec) => Some(vec),
         Err(e) => {
-            eprintln!("[OpenAI Embedding Error] {}", e);
+            error!("[OpenAI Embedding Error] {}", e);
             None
         }
     };
@@ -113,6 +115,7 @@ pub async fn create_product(
 pub async fn create_product_by_ai(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     item: web::Json<AiProductRequest>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
@@ -130,10 +133,10 @@ pub async fn create_product_by_ai(
     }
 
     // 2. Gemini Analysis
-    let ai_result = match crate::utils::gemini::analyze_image_with_gemini(&item_inner.image_id.to_string()).await {
+    let ai_result = match crate::utils::gemini::analyze_image_with_gemini(&r2, &item_inner.image_id.to_string()).await {
         Ok(res) => res,
         Err(e) => {
-            eprintln!("[Gemini Error] {}", e);
+            error!("[Gemini Error] {}", e);
             let resp: CommonResponse<Option<()>> = CommonResponse {
                 result: false,
                 data: None,
@@ -150,7 +153,7 @@ pub async fn create_product_by_ai(
     let embedding = match crate::utils::openai::get_embedding(&ai_result.name).await {
         Ok(vec) => Some(vec),
         Err(e) => {
-            eprintln!("[OpenAI Embedding Error For AI Model] {}", e);
+            error!("[OpenAI Embedding Error For AI Model] {}", e);
             None
         }
     };
@@ -161,38 +164,11 @@ pub async fn create_product_by_ai(
         desc: Some(ai_result.description),
         type_,
         barcode_id: item_inner.barcode_id,
-        image_id: None,
+        image_id: Some(item_inner.image_id),
     };
 
     let db_clone = db.clone();
     let product = web::block(move || db_create_product_by_ai(db_clone, create_params, embedding)).await??;
-
-    // 6. Download Representative Image (if provided by Gemini)
-    if let Some(ref image_url) = ai_result.image_url {
-        if !image_url.is_empty() {
-            let new_uuid = uuid::Uuid::new_v4();
-            match crate::utils::scraper::download_image(image_url, new_uuid).await {
-                Ok(_) => {
-                    if let Ok(mut conn) = db.get() {
-                        use diesel::prelude::*;
-                        let new_image = crate::models::NewProductImage {
-                            id: new_uuid,
-                            product_id: Some(product.id),
-                            note_id: None,
-                            user_id: None,
-                            registered: chrono::Utc::now(),
-                        };
-                        let _ = diesel::insert_into(crate::schema::product_images::table)
-                            .values(&new_image)
-                            .execute(&mut conn);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[Gemini Image Download Error] {}", e);
-                }
-            }
-        }
-    }
 
     let response = CommonResponse {
         result: true,
@@ -242,20 +218,22 @@ pub async fn get_product_by_id_with_auth(
 /// Path: /products/barcode/{barcode_id}
 pub async fn get_product_by_barcode(
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     in_barcode_id: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
-    process_get_product_by_barcode(db, in_barcode_id.into_inner(), None).await
+    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), None).await
 }
 
 /// Path: /api/products/barcode/{barcode_id} (Authenticated)
 pub async fn get_product_by_barcode_with_auth(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     in_barcode_id: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let user_sub = auth_info.sub;
-    process_get_product_by_barcode(db, in_barcode_id.into_inner(), Some(user_sub)).await
+    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), Some(user_sub)).await
 }
 
 /// Path: /products
@@ -270,7 +248,7 @@ pub async fn get_products_list(
         match crate::utils::openai::get_embedding(&translated_name).await {
             Ok(vec) => Some(vec),
             Err(e) => {
-                eprintln!("[OpenAI Embedding Error] {}", e);
+                error!("[OpenAI Embedding Error] {}", e);
                 None
             }
         }
@@ -291,6 +269,7 @@ pub async fn get_products_list(
 pub async fn get_favorite_products_list(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     query: web::Query<ProductListQuery>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
@@ -301,7 +280,7 @@ pub async fn get_favorite_products_list(
         match crate::utils::openai::get_embedding(&translated_name).await {
             Ok(vec) => Some(vec),
             Err(e) => {
-                eprintln!("[OpenAI Embedding Error] {}", e);
+                error!("[OpenAI Embedding Error] {}", e);
                 None
             }
         }
@@ -309,7 +288,7 @@ pub async fn get_favorite_products_list(
         None
     };
 
-    let products_list = web::block(move || db_get_my_favorite_products_list(db, query_inner, auth_info, embedding)).await??;
+    let products_list = web::block(move || db_get_my_favorite_products_list(db, r2, query_inner, auth_info, embedding)).await??;
     let response = CommonResponse {
         result: true,
         data: products_list,
@@ -346,10 +325,11 @@ pub async fn get_favorite_products_list_by_user_id(
 pub async fn set_product_favorite(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     item: web::Json<SetFavoriteParams>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
-    let _ = web::block(move || db_set_product_favorite(db, item, auth_info)).await??;
+    let _ = web::block(move || db_set_product_favorite(db, r2, item, auth_info)).await??;
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,
         data: None,
@@ -362,11 +342,12 @@ pub async fn set_product_favorite(
 pub async fn get_tasted_products_list(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     query: web::Query<ProductListQuery>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let query_inner = query.into_inner();
-    let tasted_products_list = web::block(move || db_get_tasted_products(db, query_inner, auth_info)).await??;
+    let tasted_products_list = web::block(move || db_get_tasted_products(db, r2, query_inner, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: tasted_products_list,
@@ -512,6 +493,13 @@ fn db_create_product_by_ai(
         if let Some(ref barcode_str) = item.barcode_id {
             let new_barcode = NewBarcode { id: Uuid::new_v4(), barcode_id: barcode_str, product_id: new_product_id };
             insert_into(barcodes::table).values(&new_barcode).execute(conn)?;
+        }
+
+        // image_id가 제공된 경우 이미지 연결
+        if let Some(image_id) = item.image_id {
+            diesel::update(product_images::table.find(image_id))
+                .set(product_images::product_id.eq(new_product_id))
+                .execute(conn)?;
         }
 
         Ok(product)
@@ -717,6 +705,7 @@ fn db_get_products_list(
 /// Shared logic for getting product by barcode
 async fn process_get_product_by_barcode(
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     barcode_str: String,
     sub: Option<String>,
 ) -> Result<HttpResponse, Error> {
@@ -742,7 +731,7 @@ async fn process_get_product_by_barcode(
                 let mut image_id = None;
                 if let Some(img_url) = scraped.image_url {
                     let new_uuid = uuid::Uuid::new_v4();
-                    if crate::utils::scraper::download_image(&img_url, new_uuid).await.is_ok() {
+                    if crate::utils::scraper::download_image(&r2, &img_url, new_uuid).await.is_ok() {
                         image_id = Some(new_uuid);
                         let new_image = crate::models::NewProductImage {
                             id: new_uuid,
@@ -818,6 +807,7 @@ async fn process_get_product_by_barcode(
 /// sub를 통해 user_id를 조회한 뒤, 공통 함수에 위임
 fn db_get_my_favorite_products_list(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     query: ProductListQuery,
     auth_info: AuthInfo,
     embedding: Option<pgvector::Vector>,
@@ -827,7 +817,7 @@ fn db_get_my_favorite_products_list(
     // sub로 유저 ID 조회 (없으면 자동 등록)
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
         Err(e) => return Err(e),
     };
 
@@ -899,6 +889,7 @@ fn db_get_favorite_products_by_user_id(
 
 fn db_set_product_favorite(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     item: web::Json<SetFavoriteParams>,
     auth_info: AuthInfo,
 ) -> Result<(), CommonResponseError> {
@@ -907,7 +898,7 @@ fn db_set_product_favorite(
     // 유저 ID 조회
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
         Err(e) => return Err(e),
     };
 
@@ -945,6 +936,7 @@ fn db_set_product_favorite(
 
 fn db_get_tasted_products(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     query: ProductListQuery,
     auth_info: AuthInfo,
 ) -> Result<Vec<ProductTastedListItem>, CommonResponseError> {
@@ -954,10 +946,9 @@ fn db_get_tasted_products(
     let per = query.per.unwrap_or(10);
     let offset = (page - 1) * per;
 
-    // 유저 ID 조회
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => crate::handlers::users_handler::register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
         Err(e) => return Err(e),
     };
 

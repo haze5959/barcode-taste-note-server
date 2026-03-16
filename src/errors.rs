@@ -4,6 +4,7 @@ use derive_more::Display;
 use diesel::result::Error::{self, NotFound};
 use diesel::result::Error as DieselError;
 use serde::{Deserialize, Serialize};
+use log::error;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display, Serialize, Deserialize)]
@@ -36,7 +37,7 @@ pub fn handler_disel_error(error: Error) -> CommonResponseError {
     return match error {
         NotFound => CommonResponseError::RecordNotFound,
         _ => {
-            eprintln!("[DB Error] {}", error.to_string());
+            error!("[DB Error] {}", error.to_string());
             CommonResponseError::InternalDBError
         }
     };

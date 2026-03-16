@@ -3,22 +3,22 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::handlers::users_handler::register_user;
 use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple};
 use crate::schema::{flavor_tags, notes, product_images, products, users};
 use crate::utils::auth::{get_auth_info, AuthInfo};
 use crate::utils::db::get_user_id_by_sub;
-use crate::utils::image_file::move_image_to_deleted;
+use crate::utils::r2::R2Client;
+use crate::handlers::users_handler::register_user;
 use actix_web::rt::spawn;
 use actix_web::{Error, HttpRequest, HttpResponse, web};
-use chrono::Utc;
+use chrono::{Utc, Datelike};
 use diesel::Connection;
 use diesel::dsl::{delete, insert_into};
 use diesel::expression_methods::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use std::collections::HashMap;
-use chrono::{Datelike, TimeZone};
+use chrono::TimeZone;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CreateNoteParams {
@@ -91,13 +91,15 @@ pub struct NoteRatingQuery {
 pub async fn create_note(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     item: web::Json<CreateNoteParams>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let item_for_db = item.clone();
     let db_clone = db.clone();
+    let r2_clone = r2.clone();
     let note =
-        web::block(move || db_create_note(db_clone, actix_web::web::Json(item_for_db), auth_info))
+        web::block(move || db_create_note(db_clone, r2_clone, actix_web::web::Json(item_for_db), auth_info))
             .await??;
 
     // 비동기로 제품 정보 업데이트 (flavors, rating, note_count)
@@ -174,11 +176,12 @@ pub async fn get_notes_by_user(
 pub async fn get_notes_calendar(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     query: web::Query<NoteCalendarQuery>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let calendar_data =
-        web::block(move || db_get_notes_calendar(db, auth_info, query.into_inner()))
+        web::block(move || db_get_notes_calendar(db, r2, auth_info, query.into_inner()))
             .await??;
     let response = CommonResponse {
         result: true,
@@ -192,11 +195,12 @@ pub async fn get_notes_calendar(
 pub async fn get_notes_by_rating(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     query: web::Query<NoteRatingQuery>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let notes_list =
-        web::block(move || db_get_notes_by_rating(db, auth_info, query.into_inner()))
+        web::block(move || db_get_notes_by_rating(db, r2, auth_info, query.into_inner()))
             .await??;
     let response = CommonResponse {
         result: true,
@@ -214,12 +218,13 @@ pub async fn get_notes_by_rating(
 pub async fn update_note(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     note_id: web::Path<Uuid>,
     item: web::Json<UpdateNoteParams>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let note =
-        web::block(move || db_update_note(db, note_id.into_inner(), item, auth_info)).await??;
+        web::block(move || db_update_note(db, r2, note_id.into_inner(), item, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: note,
@@ -236,11 +241,12 @@ pub async fn update_note(
 pub async fn delete_note(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     note_id: web::Path<Uuid>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let _delete_result =
-        web::block(move || db_delete_note(db, note_id.into_inner(), auth_info)).await??;
+        web::block(move || db_delete_note(db, r2, note_id.into_inner(), auth_info)).await??;
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,
         data: None,
@@ -255,6 +261,7 @@ pub async fn delete_note(
 
 fn db_create_note(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     item: web::Json<CreateNoteParams>,
     auth_info: AuthInfo,
 ) -> Result<Note, CommonResponseError> {
@@ -263,7 +270,7 @@ fn db_create_note(
     // 유저 ID 조회
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
         Err(e) => return Err(e),
     };
 
@@ -557,6 +564,7 @@ fn db_get_notes_by_user(
 
 fn db_update_note(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     note_id: Uuid,
     item: web::Json<UpdateNoteParams>,
     auth_info: AuthInfo,
@@ -566,7 +574,7 @@ fn db_update_note(
     // 유저 ID 조회
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2.clone())?.id,
         Err(e) => return Err(e),
     };
 
@@ -617,8 +625,10 @@ fn db_update_note(
 
         // 제거: product_images의 row 제거
         for image_id in images_to_remove {
-            // 이미지 파일을 deleted 폴더로 이동
-            let _file_delete_result = move_image_to_deleted(image_id);
+            // R2에서 이미지 이동 (Soft Delete)
+            let rt = actix_rt::Runtime::new().unwrap();
+            let _ = rt.block_on(r2.move_to_deleted(&format!("images/{}", image_id)));
+            
             // DB에서 이미지 삭제
             delete(product_images::table.find(image_id)).execute(conn)?;
         }
@@ -684,6 +694,7 @@ fn db_update_note(
 
 fn db_delete_note(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     note_id: Uuid,
     auth_info: AuthInfo,
 ) -> Result<bool, CommonResponseError> {
@@ -692,7 +703,7 @@ fn db_delete_note(
     // 유저 ID 조회
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2.clone())?.id,
         Err(e) => return Err(e),
     };
 
@@ -713,8 +724,9 @@ fn db_delete_note(
         .map_err(handler_disel_error)?;
 
     for image_id in image_ids {
-        // 이미지 파일을 deleted 폴더로 이동
-        let _file_delete_result = move_image_to_deleted(image_id);
+        // R2에서 이미지 이동 (Soft Delete)
+        let rt = actix_rt::Runtime::new().unwrap();
+        let _ = rt.block_on(r2.move_to_deleted(&format!("images/{}", image_id)));
     }
 
     // 노트 삭제
@@ -788,6 +800,7 @@ fn db_update_product_stats(
 
 fn db_get_notes_calendar(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     auth_info: AuthInfo,
     query: NoteCalendarQuery,
 ) -> Result<HashMap<String, Vec<Uuid>>, CommonResponseError> {
@@ -796,7 +809,7 @@ fn db_get_notes_calendar(
     // 유저 ID 조회
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
         Err(e) => return Err(e),
     };
 
@@ -833,6 +846,7 @@ fn db_get_notes_calendar(
 
 fn db_get_notes_by_rating(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     auth_info: AuthInfo,
     query: NoteRatingQuery,
 ) -> Result<Vec<NoteListResponse>, CommonResponseError> {
@@ -845,7 +859,7 @@ fn db_get_notes_by_rating(
     // 유저 ID 조회
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), pool.clone())?.id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
         Err(e) => return Err(e),
     };
 

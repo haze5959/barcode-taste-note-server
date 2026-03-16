@@ -131,7 +131,7 @@ pub async fn scrape_barcode_lookup(barcode: &str) -> Option<ScrapedProduct> {
     })
 }
 
-pub async fn download_image(url: &str, image_id: uuid::Uuid) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn download_image(r2: &crate::utils::r2::R2Client, url: &str, image_id: uuid::Uuid) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let resp = client.get(url).send().await?;
     
@@ -146,17 +146,21 @@ pub async fn download_image(url: &str, image_id: uuid::Uuid) -> Result<(), Box<d
         format!("Invalid image file from {}: {}", url, e)
     })?;
 
-    let path = format!("static/images/{}", image_id);
-    std::fs::create_dir_all("static/images")?;
-    
-    // If it's a large image, resize it to 400x400
-    if bytes.len() > 100_000 {
+    let final_bytes = if bytes.len() > 100_000 {
         let resized = img.resize(400, 400, image::imageops::FilterType::Nearest);
-        resized.save_with_format(&path, image::ImageFormat::Jpeg)?;
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        resized.write_to(&mut buffer, image::ImageFormat::Jpeg)?;
+        buffer.into_inner()
     } else {
-        // Save as JPEG to standardize format
-        img.save_with_format(&path, image::ImageFormat::Jpeg)?;
-    }
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buffer, image::ImageFormat::Jpeg)?;
+        buffer.into_inner()
+    };
+
+    let key = format!("images/{}", image_id);
+    r2.upload_image(&key, final_bytes, "image/jpeg").await.map_err(|e| {
+        format!("R2 upload failed: {:?}", e)
+    })?;
 
     Ok(())
 }

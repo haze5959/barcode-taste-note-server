@@ -37,7 +37,6 @@ pub async fn validator(
 }
 
 async fn validate_token(token: &str) -> Result<Claims, CommonResponseError> {
-    debug!("===== Token Validation Started =====");
     let authority = std::env::var("AUTHORITY").expect("AUTHORITY must be set");
     let audience = std::env::var("AUDIENCE").expect("AUDIENCE must be set");
     
@@ -56,7 +55,6 @@ async fn validate_token(token: &str) -> Result<Claims, CommonResponseError> {
     
     let kid = match token_kid(token) {
         Ok(Some(k)) => {
-            debug!("✓ Kid extracted successfully: {}", k);
             k
         },
         Ok(None) => {
@@ -84,16 +82,12 @@ async fn validate_token(token: &str) -> Result<Claims, CommonResponseError> {
             CommonResponseError::AuthValidationFail
         })?;
     
-    debug!("✓ Token validated successfully");
-    
     let claims: Claims = serde_json::from_value(res.claims)
         .map_err(|e| {
             error!("✗ Failed to parse claims: {:?}", e);
             CommonResponseError::AuthValidationFail
         })?;
 
-    debug!("✓ Claims parsed successfully");
-    debug!("===== Token Validation Ended =====");
     Ok(claims)
 }
 
