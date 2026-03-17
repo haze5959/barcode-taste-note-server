@@ -45,6 +45,10 @@ fn clean_product_name(name: &str) -> String {
     let re_spam = RE_SPAM.get_or_init(|| Regex::new(r"(?i)\b(empty|can only|no drink|used|aluminum|pull tab|beer can|from \d{4})\b").unwrap());
     cleaned = re_spam.replace_all(&cleaned, " ").to_string();
     
+    static RE_SYMBOLS: OnceLock<Regex> = OnceLock::new();
+    let re_symbols = RE_SYMBOLS.get_or_init(|| Regex::new(r"[-_—|/·,]").unwrap());
+    cleaned = re_symbols.replace_all(&cleaned, " ").to_string();
+
     static RE_SPACES: OnceLock<Regex> = OnceLock::new();
     let re_spaces = RE_SPACES.get_or_init(|| Regex::new(r"\s{2,}").unwrap());
     cleaned = re_spaces.replace_all(&cleaned, " ").to_string();

@@ -13,6 +13,7 @@ use actix_multipart::form::{MultipartForm, tempfile::TempFile, text::Text};
 use actix_web::{Error, HttpRequest, HttpResponse, web};
 use diesel::Connection;
 use diesel::ExpressionMethods;
+use diesel::OptionalExtension;
 use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
@@ -20,9 +21,8 @@ use uuid::Uuid;
 use log::error;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AdminProductResponse {
-    pub product: Product,
-    pub main_image_id: Option<Uuid>,
+pub struct AdminProductMainImageResponse {
+    pub image_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -178,45 +178,37 @@ fn db_get_pending_reports(pool: web::Data<Pool>) -> Result<Vec<Report>, CommonRe
 }
 
 // ============================================
-// MARK: GET /admin/product
+// MARK: GET /admin/product/main_image
 // ============================================
-pub async fn get_admin_product(
+pub async fn get_admin_product_main_image(
     req: HttpRequest,
     db: web::Data<Pool>,
     query: web::Query<AdminProductQuery>,
 ) -> Result<HttpResponse, Error> {
     validate_admin(&req)?;
 
-    let product_data = web::block(move || db_get_admin_product(db, query.product_id)).await??;
+    let image_id = web::block(move || db_get_admin_product_main_image(db, query.product_id)).await??;
     
     let response = CommonResponse {
         result: true,
-        data: product_data,
+        data: AdminProductMainImageResponse { image_id },
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
 }
 
-fn db_get_admin_product(pool: web::Data<Pool>, product_id: Uuid) -> Result<AdminProductResponse, CommonResponseError> {
+fn db_get_admin_product_main_image(pool: web::Data<Pool>, product_id: Uuid) -> Result<Option<Uuid>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-
-    let product = products::table
-        .select(crate::models::PRODUCT_COLUMNS)
-        .find(product_id)
-        .first::<Product>(conn)
-        .map_err(handler_disel_error)?;
 
     let main_image_id = product_images::table
         .filter(product_images::product_id.eq(product_id))
         .filter(product_images::note_id.is_null())
         .select(product_images::id)
         .first::<Uuid>(conn)
-        .ok();
+        .optional()
+        .map_err(handler_disel_error)?;
 
-    Ok(AdminProductResponse {
-        product,
-        main_image_id,
-    })
+    Ok(main_image_id)
 }
 
 // ============================================

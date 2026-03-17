@@ -101,7 +101,7 @@ async fn main() -> std::io::Result<()> {
                             .route("/dashboard", web::get().to(handlers::admin_handlers::get_dashboard)) // New Dashboard Endpoint added correctly here too!
                             .route("/report", web::get().to(handlers::admin_handlers::get_reports))
                             .route("/report", web::put().to(handlers::admin_handlers::update_admin_report))
-                            .route("/product", web::get().to(handlers::admin_handlers::get_admin_product))
+                            .route("/product/main_image", web::get().to(handlers::admin_handlers::get_admin_product_main_image))
                             .route("/product", web::put().to(handlers::admin_handlers::update_admin_product))
                             .route("/product/merge", web::post().to(handlers::admin_handlers::merge_admin_product))
                             .route("/image", web::post().to(handlers::admin_handlers::upload_admin_image))

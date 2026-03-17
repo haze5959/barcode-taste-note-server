@@ -457,6 +457,7 @@ fn db_get_notes_list(
     let notes_list: Vec<NoteSimple> = notes_query
         .select(NOTE_SIMPLE_COLUMNS)
         .filter(notes::rating.ne(0))
+        .filter(notes::public_scope.ne(0))
         .order(notes::registered.desc())
         .offset(offset)
         .limit(per)
@@ -474,9 +475,6 @@ fn build_note_list_response(
     let mut result = Vec::new();
 
     for note in notes_list {
-        if note.public_scope == 0 {
-            continue;
-        }
         let product = products::table
                 .find(note.product_id)
                 .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
@@ -539,6 +537,7 @@ fn db_get_notes_by_user(
         .select(NOTE_SIMPLE_COLUMNS)
         .filter(notes::user_id.eq(user_id))
         .filter(notes::rating.ne(0))
+        .filter(notes::public_scope.ne(0))
         .into_boxed();
 
     match query.order_by.as_deref() {
@@ -749,6 +748,7 @@ fn db_update_product_stats(
     let note_count_from_db: i64 = notes::table
         .filter(notes::product_id.eq(product_id))
         .filter(notes::rating.ne(0))
+        .filter(notes::public_scope.ne(0))
         .count()
         .get_result::<i64>(conn)
         .map_err(handler_disel_error)?;
@@ -757,6 +757,7 @@ fn db_update_product_stats(
     let rating_sum: i64 = notes::table
         .filter(notes::product_id.eq(product_id))
         .filter(notes::rating.ne(0))
+        .filter(notes::public_scope.ne(0))
         .select(diesel::dsl::sum(notes::rating))
         .first::<Option<i64>>(conn)
         .map_err(handler_disel_error)?

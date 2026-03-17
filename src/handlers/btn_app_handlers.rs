@@ -49,8 +49,7 @@ pub async fn get_home_info(db: web::Data<Pool>) -> Result<HttpResponse, Error> {
     {
         if let Ok(cache) = HOME_CACHE.read() {
             if let Some((cached_data, timestamp)) = &*cache {
-                // If cache is less than 10 minutes (600 seconds) old, return it
-                if timestamp.elapsed() < Duration::from_secs(600) {
+                if timestamp.elapsed() < Duration::from_secs(300) {
                     let response = CommonResponse {
                         result: true,
                         data: cached_data.clone(),
@@ -176,7 +175,8 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
     // 노트 리스트 조회
     let notes_list: Vec<Note> = notes::table
         .order(notes::registered.desc())
-        // .filter(notes::public_scope.eq(1))
+        .filter(notes::rating.ne(0))
+        .filter(notes::public_scope.ne(0))
         .limit(HOME_INFO_LENGTH)
         .load::<Note>(conn)
         .map_err(handler_disel_error)?;

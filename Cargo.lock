@@ -1109,9 +1109,12 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 name = "batch"
 version = "0.1.0"
 dependencies = [
+ "aws-config",
+ "aws-sdk-s3",
  "chrono",
  "diesel",
  "dotenvy",
+ "log",
  "serde",
  "serde_json",
  "tokio",
@@ -1364,9 +1367,12 @@ name = "crawler"
 version = "0.1.0"
 dependencies = [
  "async-openai",
+ "aws-config",
+ "aws-sdk-s3",
  "chrono",
  "diesel",
  "dotenvy",
+ "log",
  "pgvector",
  "regex",
  "reqwest",

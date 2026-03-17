@@ -1,17 +1,19 @@
 use diesel::prelude::*;
 use std::env;
 use chrono::{Utc, Duration};
-use std::fs;
-use std::path::Path;
 
 mod db;
 mod models;
 mod schema;
+mod r2;
 
 use schema::product_images::dsl::*;
+use r2::R2Client;
+use dotenvy::dotenv;
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
@@ -37,6 +39,7 @@ async fn main() {
 
 async fn clean_image_job() {
     let mut conn = db::establish_connection();
+    let r2 = R2Client::new().await;
 
     // 1시간 전 시간 계산
     let one_hour_ago = Utc::now().naive_utc() - Duration::hours(1);
@@ -58,42 +61,21 @@ async fn clean_image_job() {
 
     println!("Found {} orphaned image(s). Proceeding to clean up...", target_images.len());
 
-    // Trash 디렉토리 확인 및 생성 (서버 루트의 static/trash 기준)
-    let static_dir = env::current_dir().unwrap().join("static");
-    // Workspace 기준(batch 내부인지 바깥인지) 보정
-    let static_dir = if static_dir.exists() {
-        static_dir
-    } else {
-        env::current_dir().unwrap().join("..").join("static")
-    };
-    
-    let trash_dir = static_dir.join("trash");
-    let images_dir = static_dir.join("images");
-
-    if !trash_dir.exists() {
-        fs::create_dir_all(&trash_dir).expect("Failed to create trash directory");
-    }
-
     let mut moved_count = 0;
     
-    // 2. 파일 시스템 이동 처리
+    // 2. R2 이동 처리
     for img_id in &target_images {
-        let file_name = img_id.to_string();
-        let source_path = images_dir.join(&file_name);
+        let key = format!("images/{}", img_id);
         
-        if source_path.exists() {
-            let target_file_name = format!("{}.jpeg", file_name);
-            let target_path = trash_dir.join(&target_file_name);
-            
-            match fs::rename(&source_path, &target_path) {
-                Ok(_) => {
-                    println!("Moved {} to trash", target_file_name);
-                    moved_count += 1;
-                }
-                Err(e) => eprintln!("Failed to move file {}: {}", file_name, e),
+        match r2.move_to_deleted(&key).await {
+            Ok(_) => {
+                println!("Moved {} to deleted/", key);
+                moved_count += 1;
             }
-        } else {
-            println!("File {} not found in images directory, but exists in DB. Will still delete DB record.", file_name);
+            Err(e) => {
+                // R2에 파일이 없을 수도 있으므로 (DB엔 있지만) 에러 로그만 남기고 진행
+                eprintln!("Failed to move R2 object {}: {}", key, e);
+            }
         }
     }
 

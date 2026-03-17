@@ -61,7 +61,8 @@ pub struct ProductListItem {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductTastedListItem {
-    pub product: Product,
+    pub product: ProductLite,
+    pub image_ids: Vec<Uuid>,
     pub my_rating: i16,
 }
 
@@ -956,7 +957,7 @@ fn db_get_tasted_products(
     // Diesel에서는 GROUP BY로 복잡한 최신 row 가져오기 및 Join, limit 처리가 까다로움.
     // PostgreSQL 전용 `DISTINCT ON`을 수동 SQL(raw sql)로 사용하거나 Query builder를 조합.
     let mut sql_query_str = String::from(
-        "SELECT p.id, p.name, p.type, p.desc, p.rating as p_rating, p.flavor_infos, p.registered, p.note_count, \
+        "SELECT p.id, p.name, p.type as type_, p.rating as p_rating, p.registered, p.note_count, \
          n.rating as n_rating \
          FROM ( \
             SELECT DISTINCT ON (product_id) product_id, rating, registered \
@@ -984,12 +985,8 @@ fn db_get_tasted_products(
         name: String,
         #[diesel(sql_type = diesel::sql_types::Int2)]
         type_: i16,
-        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
-        desc: Option<String>,
         #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Float4>)]
         p_rating: Option<f32>,
-        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Jsonb>)]
-        flavor_infos: Option<serde_json::Value>,
         #[diesel(sql_type = diesel::sql_types::Timestamptz)]
         registered: chrono::DateTime<Utc>,
         #[diesel(sql_type = diesel::sql_types::Int4)]
@@ -1005,17 +1002,28 @@ fn db_get_tasted_products(
 
     let mut result = Vec::new();
     for raw in raw_results {
-        let product = Product {
+        let product = ProductLite {
             id: raw.id,
             name: raw.name,
             type_: raw.type_,
-            desc: raw.desc,
             rating: raw.p_rating,
-            flavor_infos: raw.flavor_infos,
             registered: raw.registered,
             note_count: raw.note_count,
         };
-        result.push(ProductTastedListItem { product, my_rating: raw.n_rating });
+
+        // 제품 이미지 ID들 조회 (최대 3개)
+        let image_ids: Vec<Uuid> = product_images::table
+            .filter(product_images::product_id.eq(product.id))
+            .select(product_images::id)
+            .limit(3)
+            .load::<Uuid>(conn)
+            .map_err(handler_disel_error)?;
+
+        result.push(ProductTastedListItem { 
+            product, 
+            image_ids,
+            my_rating: raw.n_rating 
+        });
     }
 
     Ok(result)

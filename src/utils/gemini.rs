@@ -67,7 +67,7 @@ pub async fn analyze_image_with_gemini(r2: &crate::utils::r2::R2Client, image_id
         let prompt = "Analyze the provided image and identify the alcoholic beverage or F&B product. \
         IMPORTANT RULES: \
         1. If the item in the image is clearly NOT a food, beverage, or alcoholic product, you MUST stop and return strictly this JSON: {\"error\": \"Not an F&B product\"}. \
-        2. For the `name`, determine the core English product name ONLY. You MUST EXCLUDE any promotional subtitles, limited edition markers, seasonal artwork edition names, or capacity variants (e.g., if it is 'Suntory Royal Blended Whisky Sakura Blossom Limited Edition', return strictly 'Suntory Royal Blended Whisky'). \
+        2. For the `name`, determine the core English product name ONLY. You MUST EXCLUDE any promotional subtitles, limited edition markers, seasonal artwork edition names, or capacity variants. DO NOT include any special characters or symbols such as hyphens in the name (e.g., if it is 'Suntory Royal Blended Whisky Sakura Blossom Limited Edition', return strictly 'Suntory Royal Blended Whisky'). \
         3. Provides a professional English description of the product using your extensive knowledge base. Include the brand, standard ABV, specific production methods (e.g., first press malt, aging types), and key flavor markers. \
         STRICTLY UNDER 200 characters. USE factual, encyclopedia-style language. \
         Avoid empty fillers or speculative hedges. For well-known products, you MUST include standard market specifications. \

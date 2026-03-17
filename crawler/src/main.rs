@@ -13,9 +13,11 @@ mod db;
 mod models;
 mod schema;
 mod openai;
+mod r2;
 
 use models::OpenFoodFactsResponse;
 use db::{establish_connection, barcode_exists, product_exists_by_name, insert_product, insert_barcode, insert_product_image, NewProduct, NewBarcode, NewProductImage};
+use r2::R2Client;
 
 fn clean_product_name(name: &str) -> String {
     let mut cleaned = name.replace("&quot;", "");
@@ -35,6 +37,10 @@ fn clean_product_name(name: &str) -> String {
     static RE_QTY: OnceLock<Regex> = OnceLock::new();
     let re_qty = RE_QTY.get_or_init(|| Regex::new(r"(?i)\b(x\s*\d+\s*(pcs|pack|packs|ea)?|\d+\s*(pcs|pack|packs|ea|bottles|cans))\b").unwrap());
     cleaned = re_qty.replace_all(&cleaned, " ").to_string();
+
+    static RE_SYMBOLS: OnceLock<Regex> = OnceLock::new();
+    let re_symbols = RE_SYMBOLS.get_or_init(|| Regex::new(r"[-_—|/·,]").unwrap());
+    cleaned = re_symbols.replace_all(&cleaned, " ").to_string();
     
     static RE_SPACES: OnceLock<Regex> = OnceLock::new();
     let re_spaces = RE_SPACES.get_or_init(|| Regex::new(r"\s{2,}").unwrap());
@@ -79,13 +85,12 @@ fn build_desc(brands: &Option<String>) -> Option<String> {
     }
 }
 
-async fn download_image(client: &Client, url: &str, image_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
+async fn download_image(client: &Client, r2: &R2Client, url: &str, image_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
     let resp = client.get(url).send().await?;
     if resp.status().is_success() {
         let bytes = resp.bytes().await?;
-        let path = format!("../static/images/{}", image_id);
-        std::fs::create_dir_all("../static/images")?;
-        std::fs::write(path, bytes)?;
+        let key = format!("images/{}", image_id);
+        r2.upload_image(&key, bytes.to_vec(), "image/jpeg").await?;
     }
     Ok(())
 }
@@ -96,26 +101,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let mut conn = establish_connection();
     let client = Client::new();
+    let r2 = R2Client::new().await;
     
-    let failed_pages_str = std::fs::read_to_string("failed_pages.txt").unwrap_or_default();
-    let pages_to_crawl: Vec<i64> = failed_pages_str
-        .lines()
-        .filter_map(|l| l.trim().parse::<i64>().ok())
-        .collect();
-
-    if pages_to_crawl.is_empty() {
-        println!("No pages to crawl.");
-        return Ok(());
-    }
-
-    // Clear failed_pages.txt to log only NEW failures
-    let _ = std::fs::write("failed_pages.txt", "");
-
     let mut consecutive_fails = 0;
     
-    for page in pages_to_crawl {
+    for page in 1.. {
         println!("Crawling page: {}", page);
-        let url = format!("https://world.openfoodfacts.org/category/alcoholic-beverages.json?page={}&page_size=50&fields=code,product_name,brands,categories_tags,image_url", page);
+        let url = format!("https://world.openfoodfacts.org/category/alcoholic-beverages.json?sort_by=created_t&page={}&page_size=50&fields=code,product_name,brands,categories_tags,image_url", page);
         
         let Ok(resp) = client.get(&url).send().await else {
             println!("Request error on page {}", page);
@@ -150,12 +142,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("No products found at page {}.", page);
             continue;
         }
+
+        let mut consecutive_exists_count = 0;
         
         for off_prod in api_response.products {
             let code = match off_prod.code {
                 Some(c) if !c.is_empty() => c,
                 _ => continue,
             };
+
+            if barcode_exists(&mut conn, &code) {
+                consecutive_exists_count += 1;
+                if consecutive_exists_count >= 5 {
+                    println!("Found 5 consecutive existing barcodes. Stopping crawler.");
+                    return Ok(());
+                }
+                continue;
+            }
+            
+            // Reset count when we find a new barcode
+            consecutive_exists_count = 0;
             
             let name = match off_prod.product_name {
                 Some(n) if !n.is_empty() => {
@@ -167,10 +173,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 _ => continue,
             };
-            
-            if barcode_exists(&mut conn, &code) {
-                continue;
-            }
             
             let type_ = parse_category(&off_prod.categories_tags);
             let desc = build_desc(&off_prod.brands);
@@ -202,7 +204,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 
                 if let Some(img_url) = off_prod.image_url {
                     let image_id = Uuid::new_v4();
-                    if download_image(&client, &img_url, image_id).await.is_ok() {
+                    if download_image(&client, &r2, &img_url, image_id).await.is_ok() {
                         let new_image = NewProductImage {
                             id: image_id,
                             product_id: Some(pid),
