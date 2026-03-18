@@ -99,6 +99,7 @@ async fn main() -> std::io::Result<()> {
                         web::scope("")
                             .wrap(HttpAuthentication::bearer(auth::validator))
                             .route("/dashboard", web::get().to(handlers::admin_handlers::get_dashboard)) // New Dashboard Endpoint added correctly here too!
+                            .route("/notes", web::get().to(handlers::admin_handlers::get_admin_notes))
                             .route("/report", web::get().to(handlers::admin_handlers::get_reports))
                             .route("/report", web::put().to(handlers::admin_handlers::update_admin_report))
                             .route("/product/main_image", web::get().to(handlers::admin_handlers::get_admin_product_main_image))

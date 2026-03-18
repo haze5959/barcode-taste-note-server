@@ -3,7 +3,7 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple};
+use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple, NoteListQuery, NoteListResponse};
 use crate::schema::{flavor_tags, notes, product_images, products, users};
 use crate::utils::auth::{get_auth_info, AuthInfo};
 use crate::utils::db::get_user_id_by_sub;
@@ -41,14 +41,6 @@ pub struct UpdateNoteParams {
     pub details: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct NoteListQuery {
-    pub page: Option<i64>,
-    pub per: Option<i64>,
-    pub product_id: Option<Uuid>,
-    pub order_by: Option<String>,
-    pub ids: Option<String>,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NoteResponse {
@@ -60,15 +52,6 @@ pub struct NoteResponse {
     pub flavors: Option<Vec<i16>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct NoteListResponse {
-    pub note: NoteSimple,
-    pub product: Option<ProductLite>,
-    pub user: Option<User>,
-    pub image_ids: Option<Vec<Uuid>>,
-    pub product_image_id: Option<Uuid>,
-    pub flavors: Option<Vec<i16>>,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NoteCalendarQuery {
@@ -467,7 +450,7 @@ fn db_get_notes_list(
     build_note_list_response(conn, notes_list)
 }
 
-fn build_note_list_response(
+pub(crate) fn build_note_list_response(
     conn: &mut diesel::PgConnection,
     notes_list: Vec<NoteSimple>,
 ) -> Result<Vec<NoteListResponse>, CommonResponseError> {

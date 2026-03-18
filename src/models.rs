@@ -301,3 +301,22 @@ pub struct NewFollow {
     pub user_id: Uuid,
     pub following_user_id: Uuid,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NoteListQuery {
+    pub page: Option<i64>,
+    pub per: Option<i64>,
+    pub product_id: Option<Uuid>,
+    pub order_by: Option<String>,
+    pub ids: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NoteListResponse {
+    pub note: NoteSimple,
+    pub product: Option<ProductLite>,
+    pub user: Option<User>,
+    pub image_ids: Option<Vec<Uuid>>,
+    pub product_image_id: Option<Uuid>,
+    pub flavors: Option<Vec<i16>>,
+}

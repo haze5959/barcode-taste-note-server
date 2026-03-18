@@ -3,8 +3,9 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{CommonResponse, Product, Report};
+use crate::models::{CommonResponse, Product, Report, NoteSimple, NOTE_SIMPLE_COLUMNS, NoteListQuery, NoteListResponse};
 use crate::schema::{barcodes, favorites, flavor_tags, notes, product_images, products, reports};
+use crate::handlers::notes_handlers::build_note_list_response;
 use crate::utils::auth::get_auth_info;
 use crate::utils::openai::get_embedding;
 use crate::utils::r2::R2Client;
@@ -395,4 +396,52 @@ pub async fn upload_admin_image(
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: GET /admin/notes
+// ============================================
+pub async fn get_admin_notes(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    query: web::Query<NoteListQuery>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let notes_list = web::block(move || db_get_admin_notes(db, query.into_inner())).await??;
+    
+    let response = CommonResponse {
+        result: true,
+        data: notes_list,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+fn db_get_admin_notes(
+    pool: web::Data<Pool>,
+    query: NoteListQuery,
+) -> Result<Vec<NoteListResponse>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let mut notes_query = notes::table.into_boxed();
+
+    let page = query.page.unwrap_or(1);
+    let per = query.per.unwrap_or(10);
+    let offset = (page - 1) * per;
+
+    // product_id 필터링
+    if let Some(product_id) = query.product_id {
+        notes_query = notes_query.filter(notes::product_id.eq(product_id));
+    }
+
+    let notes_list: Vec<NoteSimple> = notes_query
+        .select(NOTE_SIMPLE_COLUMNS)
+        .order(notes::registered.desc())
+        .offset(offset)
+        .limit(per)
+        .load::<NoteSimple>(conn)
+        .map_err(handler_disel_error)?;
+
+    build_note_list_response(conn, notes_list)
 }
