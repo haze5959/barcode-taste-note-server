@@ -1,5 +1,6 @@
-use actix_web::{App, HttpServer, middleware::Logger, web};
+use actix_web::{App, HttpServer, middleware::Logger, web, http::header};
 use actix_web_httpauth::middleware::HttpAuthentication;
+use actix_cors::Cors;
 use dotenv::dotenv;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 
@@ -37,6 +38,20 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
+            .wrap(
+                Cors::default()
+                    .allowed_origin("https://barnote.net")
+                    .allowed_origin_fn(|origin, _req_head| {
+                        origin.as_bytes().ends_with(b".barnote.net")
+                    })
+                    .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
+                    .allowed_headers(vec![
+                        header::AUTHORIZATION,
+                        header::ACCEPT,
+                        header::CONTENT_TYPE,
+                    ])
+                    .max_age(3600),
+            )
             .app_data(web::Data::new(pool.clone()))
             .app_data(r2_data.clone())
             // Public routes
