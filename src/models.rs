@@ -266,7 +266,7 @@ pub struct Report {
     pub user_id: Uuid,
     pub body: Option<String>,
     pub state: Option<i16>,
-    pub reply: String,
+    pub reply: Option<String>,
     pub registered: Option<DateTime<Utc>>,
     #[serde(rename = "type")]
     pub type_: i16,

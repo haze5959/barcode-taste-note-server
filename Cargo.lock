@@ -1115,6 +1115,9 @@ dependencies = [
  "diesel",
  "dotenvy",
  "log",
+ "pgvector",
+ "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
@@ -1731,6 +1734,18 @@ dependencies = [
  "sec1",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "emart-crawler"
+version = "0.1.0"
+dependencies = [
+ "dotenvy",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

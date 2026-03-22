@@ -6,6 +6,7 @@ mod db;
 mod models;
 mod schema;
 mod r2;
+mod jobs;
 
 use schema::product_images::dsl::*;
 use r2::R2Client;
@@ -18,7 +19,7 @@ async fn main() {
 
     if args.len() < 2 {
         eprintln!("Usage: cargo run <command>");
-        eprintln!("Available commands: clean_image");
+        eprintln!("Available commands: clean_image, add_product_with_json");
         std::process::exit(1);
     }
 
@@ -29,6 +30,13 @@ async fn main() {
             println!("Starting 'clean_image' batch job...");
             clean_image_job().await;
             println!("Batch job 'clean_image' completed.");
+        }
+        "add_product_with_json" => {
+            println!("Starting 'add_product_with_json' batch job...");
+            let mut conn = db::establish_connection();
+            let r2 = R2Client::new().await;
+            jobs::add_product_with_json::run(&mut conn, &r2).await;
+            println!("Batch job 'add_product_with_json' completed.");
         }
         _ => {
             eprintln!("Unknown command: {}", command);

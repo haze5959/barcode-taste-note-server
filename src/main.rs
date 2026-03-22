@@ -57,7 +57,6 @@ async fn main() -> std::io::Result<()> {
             // Public routes
             // Users
             .route("/users", web::get().to(handlers::users_handler::get_users))
-            .route("/users/search", web::get().to(handlers::users_handler::search_users))
             .route("/users/{id}", web::get().to(handlers::users_handler::get_user_by_id))
             // Products
             .route("/products", web::post().to(handlers::products_handlers::create_product))
@@ -83,10 +82,12 @@ async fn main() -> std::io::Result<()> {
                             .route("/users/favorites", web::get().to(handlers::users_handler::get_my_favorites))
                             .route("/users/me", web::put().to(handlers::users_handler::update_user_nick))
                             .route("/users/me", web::delete().to(handlers::users_handler::delete_user))
+                            .route("/users/search", web::get().to(handlers::users_handler::search_users))
                             .route("/users/follower", web::get().to(handlers::users_handler::get_followers))
                             .route("/users/following", web::get().to(handlers::users_handler::get_followings))
                             .route("/users/following", web::post().to(handlers::users_handler::follow_user))
                             .route("/users/following/{id}", web::delete().to(handlers::users_handler::unfollow_user))
+                            .route("/users/{id}", web::get().to(handlers::users_handler::get_user_by_id_with_auth))
                             // Products
                             .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list))
                             .route("/products/favorite", web::post().to(handlers::products_handlers::set_product_favorite))
@@ -117,10 +118,12 @@ async fn main() -> std::io::Result<()> {
                             .route("/notes", web::get().to(handlers::admin_handlers::get_admin_notes))
                             .route("/report", web::get().to(handlers::admin_handlers::get_reports))
                             .route("/report", web::put().to(handlers::admin_handlers::update_admin_report))
+                            .route("/product/barcodes", web::get().to(handlers::admin_handlers::get_admin_product_barcodes))
                             .route("/product/main_image", web::get().to(handlers::admin_handlers::get_admin_product_main_image))
                             .route("/product", web::put().to(handlers::admin_handlers::update_admin_product))
                             .route("/product/merge", web::post().to(handlers::admin_handlers::merge_admin_product))
                             .route("/image", web::post().to(handlers::admin_handlers::upload_admin_image))
+                            .route("/image/url", web::post().to(handlers::admin_handlers::upload_admin_image_by_url))
                     )
             )
     })

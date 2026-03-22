@@ -34,7 +34,7 @@ fn clean_product_name(name: &str) -> String {
     cleaned = re_abv.replace_all(&cleaned, " ").to_string();
     
     static RE_MEASURE: OnceLock<Regex> = OnceLock::new();
-    let re_measure = RE_MEASURE.get_or_init(|| Regex::new(r"(?i)\b\d+(\.\d+)?\s*(ml|cl|l|liter|liters|litre|litres|g|kg|mg|oz|fl\.?\s*oz|lb|lbs)\b").unwrap());
+    let re_measure = RE_MEASURE.get_or_init(|| Regex::new(r"(?i)\b\d+(\.\d+)?\s*(ml|cl|lt|l|liter|liters|litre|litres|g|kg|mg|oz|fl\.?\s*oz|lb|lbs)\b").unwrap());
     cleaned = re_measure.replace_all(&cleaned, " ").to_string();
     
     static RE_QTY: OnceLock<Regex> = OnceLock::new();
@@ -52,9 +52,37 @@ fn clean_product_name(name: &str) -> String {
     static RE_SPACES: OnceLock<Regex> = OnceLock::new();
     let re_spaces = RE_SPACES.get_or_init(|| Regex::new(r"\s{2,}").unwrap());
     cleaned = re_spaces.replace_all(&cleaned, " ").to_string();
-    
+
+    // 이름 끝에 남는 단독 숫자·개수·용량 패턴 반복 제거
+    // 예: "6 pack", "x1", "1 LT", ", 5", ", 0" 등
+    static RE_TRAILING: OnceLock<Regex> = OnceLock::new();
+    let re_trailing = RE_TRAILING.get_or_init(|| {
+        Regex::new(r"(?i)\s+(x\s*\d+|\d+\s*(pack|packs|lt|l|ml|cl|g|kg|oz|pcs|ea|bottles|cans)?|\d+)$").unwrap()
+    });
+    loop {
+        let next = re_trailing.replace(&cleaned, "").to_string();
+        let next = next.trim().trim_end_matches(&[',', '-', ' ', '.'][..]).trim().to_string();
+        if next == cleaned.trim() {
+            break;
+        }
+        cleaned = next;
+    }
+
     // Remove trailing commas, hyphens, spaces, or dots
-    cleaned.trim().trim_end_matches(&[',', '-', ' ', '.'][..]).trim().to_string()
+    let trimmed = cleaned.trim().trim_end_matches(&[',', '-', ' ', '.'][..]).trim().to_string();
+
+    // Title Case 변환: 각 단어의 첫 글자를 대문자로
+    trimmed
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 

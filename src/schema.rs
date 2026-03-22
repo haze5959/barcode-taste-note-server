@@ -102,7 +102,7 @@ diesel::table! {
         user_id -> Uuid,
         body -> Nullable<Text>,
         state -> Nullable<Int2>,
-        reply -> Text,
+        reply -> Nullable<Text>,
         registered -> Nullable<Timestamptz>,
         #[sql_name = "type"]
         type_ -> Int2,
@@ -128,6 +128,7 @@ diesel::joinable!(favorites -> products (product_id));
 diesel::joinable!(favorites -> users (user_id));
 diesel::joinable!(flavor_tags -> notes (note_id));
 diesel::joinable!(flavor_tags -> products (product_id));
+diesel::joinable!(notes -> products (product_id));
 diesel::joinable!(notes -> users (user_id));
 diesel::joinable!(product_images -> notes (note_id));
 diesel::joinable!(product_images -> products (product_id));

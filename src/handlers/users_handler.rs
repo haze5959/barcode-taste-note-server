@@ -49,6 +49,7 @@ pub struct UserDetailResponse {
     pub note_count: i64,
     pub follower_count: i64,
     pub needed_review_product: Option<bool>,
+    pub is_following: Option<bool>,
 }
 
 // ============================================
@@ -82,12 +83,15 @@ pub async fn get_my_info(
     Ok(HttpResponse::Ok().json(response))
 }
 
-/// Path: /users/search
+/// Path: GET /api/users/search
 pub async fn search_users(
+    req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     query: web::Query<SearchUserQuery>,
 ) -> Result<HttpResponse, Error> {
-    let result = web::block(move || db_search_users(db, query.into_inner())).await??;
+    let auth_info = get_auth_info(req)?;
+    let result = web::block(move || db_search_users(db, r2, query.into_inner(), auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: result,
@@ -126,6 +130,26 @@ pub async fn get_user_by_id(
     Ok(HttpResponse::Ok().json(response))
 }
 
+/// Path: GET /api/users/{id} - 인증된 유저 기준 is_following 포함
+pub async fn get_user_by_id_with_auth(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    user_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let user_info = web::block(move || {
+        db_get_user_info_by_id_with_auth(db, r2, user_id.into_inner(), auth_info)
+    })
+    .await??;
+    let response = CommonResponse {
+        result: true,
+        data: user_info,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
 /// Path: GET /api/users/follower
 pub async fn get_followers(
     req: HttpRequest,
@@ -147,6 +171,7 @@ pub async fn get_followings(
     db: web::Data<Pool>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
+    // 팔로잉 목록은 내가 팔로우한 유저이므로 is_following = true 하드코딩
     let result = web::block(move || db_get_followings(db, auth_info)).await??;
     let response = CommonResponse {
         result: true,
@@ -278,6 +303,7 @@ fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, 
             note_count,
             follower_count,
             needed_review_product: None,
+            is_following: None,
         });
     }
 
@@ -286,10 +312,18 @@ fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, 
 
 fn db_search_users(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     query: SearchUserQuery,
+    auth_info: AuthInfo,
 ) -> Result<Vec<UserDetailResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
     let search_pattern = format!("%{}%", query.nick_name);
+
+    let my_user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
+        Ok(uid) => uid,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
+        Err(e) => return Err(e),
+    };
 
     let items = users
         .select(USER_COLUMNS)
@@ -312,11 +346,21 @@ fn db_search_users(
             .get_result(conn)
             .map_err(handler_disel_error)?;
 
+        // 내가 해당 유저를 팔로우하는지 확인 (exists 사용)
+        let is_following: bool = select(exists(
+            follows::table
+                .filter(follows::user_id.eq(my_user_id))
+                .filter(follows::following_user_id.eq(user.id)),
+        ))
+        .get_result(conn)
+        .unwrap_or(false);
+
         result.push(UserDetailResponse {
             user,
             note_count,
             follower_count,
             needed_review_product: None,
+            is_following: Some(is_following),
         });
     }
 
@@ -368,6 +412,7 @@ fn get_user_info_by_sub(
         note_count,
         follower_count,
         needed_review_product: Some(needed_review_product),
+        is_following: None,
     })
 }
 
@@ -416,6 +461,58 @@ fn db_get_user_info_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<UserDe
         note_count,
         follower_count,
         needed_review_product: None,
+        is_following: None,
+    })
+}
+
+/// sub로 내 user_id를 조회하여 is_following 포함한 특정 유저 정보 반환
+fn db_get_user_info_by_id_with_auth(
+    pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    user_id: Uuid,
+    auth_info: AuthInfo,
+) -> Result<UserDetailResponse, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let my_user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
+        Ok(uid) => uid,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
+        Err(e) => return Err(e),
+    };
+
+    let user = users
+        .select(USER_COLUMNS)
+        .find(user_id)
+        .get_result::<User>(conn)
+        .map_err(handler_disel_error)?;
+
+    let note_count: i64 = notes::table
+        .filter(notes::user_id.eq(user.id))
+        .select(count(notes::id))
+        .first(conn)
+        .map_err(handler_disel_error)?;
+
+    let follower_count: i64 = follows::table
+        .filter(follows::following_user_id.eq(user.id))
+        .count()
+        .get_result(conn)
+        .map_err(handler_disel_error)?;
+
+    // 내가 해당 유저를 팔로우하는지 확인 (exists 사용)
+    let is_following: bool = select(exists(
+        follows::table
+            .filter(follows::user_id.eq(my_user_id))
+            .filter(follows::following_user_id.eq(user.id)),
+    ))
+    .get_result(conn)
+    .unwrap_or(false);
+
+    Ok(UserDetailResponse {
+        user,
+        note_count,
+        follower_count,
+        needed_review_product: None,
+        is_following: Some(is_following),
     })
 }
 
@@ -598,7 +695,8 @@ fn db_get_followers(
         .load::<Uuid>(conn)
         .map_err(handler_disel_error)?;
 
-    db_build_user_detail_items(conn, follower_user_ids)
+    // is_following: 내가 해당 팔로워를 맞팔하고 있는지 확인
+    db_build_user_detail_items(conn, follower_user_ids, my_user_id, false)
 }
 
 /// 내가 팔로우하는 유저 목록 (follows.user_id = 내 user_id)
@@ -617,7 +715,8 @@ fn db_get_followings(
         .load::<Uuid>(conn)
         .map_err(handler_disel_error)?;
 
-    db_build_user_detail_items(conn, following_user_ids)
+    // 팔로잉 목록은 내가 팔로우한 유저이므로 is_following = true 하드코딩
+    db_build_user_detail_items(conn, following_user_ids, my_user_id, true)
 }
 
 /// 팔로우 row 삭제 (follows.id = follow_id, follows.user_id = 내 user_id 확인 후 삭제)
@@ -648,9 +747,13 @@ fn db_unfollow_user(
 }
 
 /// user_id 목록으로 UserDetailResponse 목록 조회 (follower_count 내림차순 정렬)
+/// - my_user_id: 내 user_id (is_following 계산용)
+/// - force_is_following: true이면 is_following을 true로 하드코딩 (팔로잉 목록용)
 fn db_build_user_detail_items(
     conn: &mut diesel::PgConnection,
     user_ids: Vec<Uuid>,
+    my_user_id: Uuid,
+    force_is_following: bool,
 ) -> Result<Vec<UserDetailResponse>, CommonResponseError> {
     let mut items: Vec<UserDetailResponse> = Vec::new();
 
@@ -674,7 +777,27 @@ fn db_build_user_detail_items(
             .get_result(conn)
             .map_err(handler_disel_error)?;
 
-        items.push(UserDetailResponse { user, note_count, follower_count, needed_review_product: None });
+        // force_is_following이 true이면 하드코딩, 아니면 exists로 DB 조회
+        let is_following = if force_is_following {
+            Some(true)
+        } else {
+            let exists_result: bool = select(exists(
+                follows::table
+                    .filter(follows::user_id.eq(my_user_id))
+                    .filter(follows::following_user_id.eq(uid)),
+            ))
+            .get_result(conn)
+            .unwrap_or(false);
+            Some(exists_result)
+        };
+
+        items.push(UserDetailResponse {
+            user,
+            note_count,
+            follower_count,
+            needed_review_product: None,
+            is_following,
+        });
     }
 
     // follower_count 내림차순 정렬

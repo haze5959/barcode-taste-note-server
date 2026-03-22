@@ -41,5 +41,6 @@ aws-sdk-s3 = "1.17"
 [workspace]
 members = [
     "crawler",
+    "crawler/emart",
     "batch"
 ]

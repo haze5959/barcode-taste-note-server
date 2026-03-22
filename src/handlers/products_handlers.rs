@@ -243,21 +243,50 @@ pub async fn get_products_list(
     query: web::Query<ProductListQuery>,
 ) -> Result<HttpResponse, Error> {
     let query_inner = query.into_inner();
-    
-    let embedding = if let Some(ref name) = query_inner.name {
-        let translated_name = crate::utils::translator::translate_to_english_if_cjk(name).await;
-        match crate::utils::openai::get_embedding(&translated_name).await {
-            Ok(vec) => Some(vec),
+
+    // 이름 검색어가 있는 경우: LIKE 검색 우선
+    if let Some(ref name) = query_inner.name {
+        let name_clone = name.clone();
+        let db_clone = db.clone();
+        let query_clone = ProductListQuery {
+            page: query_inner.page,
+            per: query_inner.per,
+            name: query_inner.name.clone(),
+            type_: query_inner.type_,
+            order_by: query_inner.order_by.clone(),
+        };
+
+        // 1단계: LIKE 검색
+        let like_results = web::block(move || db_search_products_by_like(db_clone, query_clone)).await??;
+        if !like_results.is_empty() {
+            let response = CommonResponse { result: true, data: like_results, error: None };
+            return Ok(HttpResponse::Ok().json(response));
+        }
+
+        // 2단계: LIKE 결과 없음 → 번역 + 임베딩 + 벡터 검색
+        let translated_name = crate::utils::translator::translate_to_english_if_cjk(&name_clone).await;
+        let embedding = match crate::utils::openai::get_embedding(&translated_name).await {
+            Ok(vec) => vec,
             Err(e) => {
                 error!("[OpenAI Embedding Error] {}", e);
-                None
+                let response = CommonResponse { result: true, data: Vec::<ProductListItem>::new(), error: None };
+                return Ok(HttpResponse::Ok().json(response));
             }
-        }
-    } else {
-        None
-    };
+        };
+        let query_for_vec = ProductListQuery {
+            page: query_inner.page,
+            per: query_inner.per,
+            name: query_inner.name,
+            type_: query_inner.type_,
+            order_by: query_inner.order_by,
+        };
+        let vec_results = web::block(move || db_search_products_by_vector(db, query_for_vec, embedding)).await??;
+        let response = CommonResponse { result: true, data: vec_results, error: None };
+        return Ok(HttpResponse::Ok().json(response));
+    }
 
-    let products_list = web::block(move || db_get_products_list(db, query_inner, embedding)).await??;
+    // 이름 검색어 없는 경우: 일반 목록 조회
+    let products_list = web::block(move || db_get_products_list_default(db, query_inner)).await??;
     let response = CommonResponse {
         result: true,
         data: products_list,
@@ -634,45 +663,96 @@ fn db_get_product_by_barcode(
     })
 }
 
-fn db_get_products_list(
+/// LIKE 검색 (LOWER 적용): 이름 포함 여부로 제품 조회
+fn db_search_products_by_like(
     pool: web::Data<Pool>,
     query: ProductListQuery,
-    embedding: Option<pgvector::Vector>,
 ) -> Result<Vec<ProductListItem>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-
     let page = query.page.unwrap_or(1);
     let per = query.per.unwrap_or(10);
     let offset = (page - 1) * per;
 
-    // 제품 리스트 조회
+    let name = query.name.unwrap_or_default();
+    let like_pattern = format!("%{}%", name.to_lowercase());
+
+    let mut like_query = products::table
+        .into_boxed()
+        .filter(
+            diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) LIKE ")
+                .bind::<diesel::sql_types::Text, _>(like_pattern)
+        )
+        .order(products::registered.desc());
+
+    if let Some(type_filter) = query.type_ {
+        like_query = like_query.filter(products::type_.eq(type_filter));
+    }
+
+    let results: Vec<ProductLite> = like_query
+        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+        .offset(offset)
+        .limit(per)
+        .load::<ProductLite>(conn)
+        .map_err(handler_disel_error)?;
+
+    build_product_list_items(conn, results)
+}
+
+/// 벡터 검색: l2_distance 기반 유사도 조회
+fn db_search_products_by_vector(
+    pool: web::Data<Pool>,
+    query: ProductListQuery,
+    embedding: pgvector::Vector,
+) -> Result<Vec<ProductListItem>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+    let page = query.page.unwrap_or(1);
+    let per = query.per.unwrap_or(10);
+    let offset = (page - 1) * per;
+
+    let mut vec_query = products::table
+        .into_boxed()
+        .filter(products::embedding.is_not_null())
+        .filter(products::embedding.l2_distance(embedding.clone()).lt(0.9))
+        .order(products::embedding.l2_distance(embedding));
+
+    if let Some(type_filter) = query.type_ {
+        vec_query = vec_query.filter(products::type_.eq(type_filter));
+    }
+
+    let results: Vec<ProductLite> = vec_query
+        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+        .offset(offset)
+        .limit(per)
+        .load::<ProductLite>(conn)
+        .map_err(handler_disel_error)?;
+
+    build_product_list_items(conn, results)
+}
+
+/// 이름 검색 없는 일반 목록 조회
+fn db_get_products_list_default(
+    pool: web::Data<Pool>,
+    query: ProductListQuery,
+) -> Result<Vec<ProductListItem>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+    let page = query.page.unwrap_or(1);
+    let per = query.per.unwrap_or(10);
+    let offset = (page - 1) * per;
+
     let mut products_query = products::table.into_boxed();
 
-    // 타입 필터링
     if let Some(type_filter) = query.type_ {
         products_query = products_query.filter(products::type_.eq(type_filter));
     }
 
-    // 이름이 있어서 벡터 검색을 수행하는 경우
-    if let Some(emb) = embedding {
-        // 관련된 결과만 나오도록 l2_distance 임계값(예: 0.9) 이하만 필터링
-        products_query = products_query.filter(products::embedding.is_not_null());
-        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(0.9));
-        products_query = products_query.order(products::embedding.l2_distance(emb));
-    } else {
-        // 일반 검색 (이름 검색어 없는 경우)
-        // 정렬
-        if let Some(order_by) = query.order_by {
-            if order_by == "rating" {
-                products_query = products_query.order(products::rating.desc());
-            } else {
-                // default: registered
-                products_query = products_query.order(products::registered.desc());
-            }
+    if let Some(ref order_by) = query.order_by {
+        if order_by == "rating" {
+            products_query = products_query.order(products::rating.desc());
         } else {
-            // default: registered
             products_query = products_query.order(products::registered.desc());
         }
+    } else {
+        products_query = products_query.order(products::registered.desc());
     }
 
     let products_list: Vec<ProductLite> = products_query
@@ -682,24 +762,24 @@ fn db_get_products_list(
         .load::<ProductLite>(conn)
         .map_err(handler_disel_error)?;
 
-    // 각 제품에 대한 이미지 ID들 조회 (최대 3개)
-    let mut result = Vec::new();
+    build_product_list_items(conn, products_list)
+}
 
+/// 제품 목록에 이미지 ID를 붙여 ProductListItem 벡터로 변환
+fn build_product_list_items(
+    conn: &mut diesel::PgConnection,
+    products_list: Vec<ProductLite>,
+) -> Result<Vec<ProductListItem>, CommonResponseError> {
+    let mut result = Vec::new();
     for product in products_list {
-        // 제품 이미지 ID들 조회 (최대 3개)
         let image_ids: Vec<Uuid> = product_images::table
             .filter(product_images::product_id.eq(product.id))
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)
             .map_err(handler_disel_error)?;
-
-        result.push(ProductListItem {
-            product,
-            image_ids: image_ids,
-        });
+        result.push(ProductListItem { product, image_ids });
     }
-
     Ok(result)
 }
 
