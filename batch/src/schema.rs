@@ -15,6 +15,7 @@ diesel::table! {
     products (id) {
         id -> Uuid,
         name -> Text,
+        #[sql_name = "type"]
         type_ -> SmallInt,
         desc -> Nullable<Text>,
         rating -> Nullable<Float4>,

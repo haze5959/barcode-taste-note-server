@@ -61,7 +61,8 @@ pub struct AdminImageUploadForm {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdminImageUrlUploadParams {
-    pub image_id: Uuid,
+    pub image_id: Option<Uuid>,
+    pub product_id: Option<Uuid>,
     pub add_image_url: String,
 }
 
@@ -509,30 +510,38 @@ pub async fn upload_admin_image_by_url(
         })?
         .to_vec();
 
-    // 1. DB에서 기존 product_images row 조회 → product_id 추출
-    let db_clone = db.clone();
-    let old_product_id = web::block(move || {
-        let conn = &mut db_clone.get().unwrap();
-        product_images::table
-            .find(old_image_id)
-            .select(product_images::product_id)
-            .first::<Option<Uuid>>(conn)
-            .map_err(handler_disel_error)
-    })
-    .await??;
+    let product_id = if let Some(pid) = item.product_id {
+        Some(pid)
+    } else {
+        let oid = old_image_id.ok_or(CommonResponseError::InvalidParameter)?;
 
-    // 2. R2에서 기존 이미지 삭제
-    r2.delete_image(&format!("images/{}", old_image_id)).await?;
+        // 1. DB에서 기존 product_images row 조회 → product_id 추출
+        let db_clone = db.clone();
+        let extracted_pid = web::block(move || {
+            let conn = &mut db_clone.get().unwrap();
+            product_images::table
+                .find(oid)
+                .select(product_images::product_id)
+                .first::<Option<Uuid>>(conn)
+                .map_err(handler_disel_error)
+        })
+        .await??;
 
-    // 3. DB에서 기존 product_images row 삭제
-    let db_clone2 = db.clone();
-    web::block(move || {
-        let conn = &mut db_clone2.get().unwrap();
-        diesel::delete(product_images::table.find(old_image_id))
-            .execute(conn)
-            .map_err(handler_disel_error)
-    })
-    .await??;
+        // 2. R2에서 기존 이미지 삭제
+        r2.delete_image(&format!("images/{}", oid)).await?;
+
+        // 3. DB에서 기존 product_images row 삭제
+        let db_clone2 = db.clone();
+        web::block(move || {
+            let conn = &mut db_clone2.get().unwrap();
+            diesel::delete(product_images::table.find(oid))
+                .execute(conn)
+                .map_err(handler_disel_error)
+        })
+        .await??;
+
+        extracted_pid
+    };
 
     // 4. 새 UUID 생성 후 R2 업로드
     let new_image_id = Uuid::new_v4();
@@ -541,7 +550,7 @@ pub async fn upload_admin_image_by_url(
     // 5. 새 product_images row 삽입
     let new_image = crate::models::NewProductImage {
         id: new_image_id,
-        product_id: old_product_id,
+        product_id: product_id,
         note_id: None,
         user_id: None,
         registered: chrono::Utc::now(),
