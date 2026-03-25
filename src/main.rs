@@ -98,6 +98,7 @@ async fn main() -> std::io::Result<()> {
                             // Notes
                             .route("/notes/calendar", web::get().to(handlers::notes_handlers::get_notes_calendar))
                             .route("/notes/rating", web::get().to(handlers::notes_handlers::get_notes_by_rating))
+                            .route("/notes", web::get().to(handlers::notes_handlers::get_api_notes_list))
                             .route("/notes", web::post().to(handlers::notes_handlers::create_note))
                             .route("/notes/{id}", web::put().to(handlers::notes_handlers::update_note))
                             .route("/notes/{id}", web::delete().to(handlers::notes_handlers::delete_note))

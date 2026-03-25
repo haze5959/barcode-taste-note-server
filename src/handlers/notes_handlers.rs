@@ -66,6 +66,14 @@ pub struct NoteRatingQuery {
     pub rating: i16,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiNoteListQuery {
+    pub page: Option<i64>,
+    pub per: Option<i64>,
+    pub product_id: Option<Uuid>,
+    pub order_by: Option<String>,
+}
+
 // ============================================
 // MARK: Handler for POST
 // ============================================
@@ -184,6 +192,25 @@ pub async fn get_notes_by_rating(
     let auth_info = get_auth_info(req)?;
     let notes_list =
         web::block(move || db_get_notes_by_rating(db, r2, auth_info, query.into_inner()))
+            .await??;
+    let response = CommonResponse {
+        result: true,
+        data: notes_list,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /api/notes (Authenticated)
+pub async fn get_api_notes_list(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    query: web::Query<ApiNoteListQuery>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let notes_list =
+        web::block(move || db_get_api_notes_list(db, r2, auth_info, query.into_inner()))
             .await??;
     let response = CommonResponse {
         result: true,
@@ -408,6 +435,15 @@ fn db_get_notes_list(
 
     let mut notes_query = notes::table.into_boxed();
 
+    match query.order_by.as_deref() {
+        Some("rating") => {
+            notes_query = notes_query.order(notes::rating.desc());
+        }
+        _ => {
+            notes_query = notes_query.order(notes::registered.desc());
+        }
+    }
+
     // ids 파라미터가 있으면 페이징 무시하고 해당 ID들만 조회
     if let Some(ref ids_str) = query.ids {
         let parsed_ids: Vec<Uuid> = ids_str
@@ -420,7 +456,6 @@ fn db_get_notes_list(
             // 페이징 없이 전체 조회 (최대 100개 정도로 제한)
             let notes_list: Vec<NoteSimple> = notes_query
                 .select(NOTE_SIMPLE_COLUMNS)
-                .order(notes::registered.desc())
                 .limit(100)
                 .load::<NoteSimple>(conn)
                 .map_err(handler_disel_error)?;
@@ -441,7 +476,6 @@ fn db_get_notes_list(
         .select(NOTE_SIMPLE_COLUMNS)
         .filter(notes::rating.ne(0))
         .filter(notes::public_scope.ne(0))
-        .order(notes::registered.desc())
         .offset(offset)
         .limit(per)
         .load::<NoteSimple>(conn)
@@ -826,6 +860,51 @@ fn db_get_notes_calendar(
     }
 
     Ok(calendar_map)
+}
+
+fn db_get_api_notes_list(
+    pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    auth_info: AuthInfo,
+    query: ApiNoteListQuery,
+) -> Result<Vec<NoteListResponse>, CommonResponseError> {
+    let conn = &mut pool.get().unwrap();
+
+    let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
+        Ok(id) => id,
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
+        Err(e) => return Err(e),
+    };
+
+    let page = query.page.unwrap_or(1);
+    let per = query.per.unwrap_or(10);
+    let offset = (page - 1) * per;
+
+    let mut notes_query = notes::table
+        .select(NOTE_SIMPLE_COLUMNS)
+        .filter(notes::user_id.eq(user_id))
+        .into_boxed();
+
+    if let Some(product_id) = query.product_id {
+        notes_query = notes_query.filter(notes::product_id.eq(product_id));
+    }
+
+    match query.order_by.as_deref() {
+        Some("rating") => {
+            notes_query = notes_query.order(notes::rating.desc());
+        }
+        _ => {
+            notes_query = notes_query.order(notes::registered.desc());
+        }
+    }
+
+    let notes_list: Vec<NoteSimple> = notes_query
+        .offset(offset)
+        .limit(per)
+        .load::<NoteSimple>(conn)
+        .map_err(handler_disel_error)?;
+
+    build_note_list_response(conn, notes_list)
 }
 
 fn db_get_notes_by_rating(
