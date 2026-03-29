@@ -1,7 +1,7 @@
-# BarcodeTasteNote Server Context & Rules
+# Barnote Server Context & Rules
 
 ## 1. Project Overview
-시음노트 서비스(BarcodeTasteNote)의 백엔드 서버입니다.
+시음노트 서비스(Barnote)의 백엔드 서버입니다.
 Rust와 Actix-web을 기반으로 구축되었으며, PostgreSQL을 데이터베이스로 사용합니다.
 
 ## 2. Tech Stack & Libraries

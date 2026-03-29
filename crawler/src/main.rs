@@ -148,6 +148,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if !resp.status().is_success() {
             println!("Failed to fetch page {}, status: {}", page, resp.status());
+            if resp.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                println!("Service Unavailable (503). Stopping crawler.");
+                break;
+            }
             log_failed_page(page);
             consecutive_fails += 1;
             if consecutive_fails > 20 { break; }
