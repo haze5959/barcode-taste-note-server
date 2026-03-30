@@ -4,6 +4,14 @@
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
+# 크론탭(Cron)은 기본 PATH가 매우 제한적이므로, Cargo 및 시스템 바이너리 경로를 명시해 줍니다.
+export PATH="$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
+
+# Rust 환경 변수 로드 (설치 방식에 따라 필요할 수 있음)
+if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
+fi
+
 LOG_FILE="$PROJECT_ROOT/batch/daily_job.log"
 EMAIL="barcodetastenote@gmail.com"
 

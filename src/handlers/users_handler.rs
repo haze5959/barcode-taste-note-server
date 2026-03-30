@@ -328,6 +328,7 @@ fn db_search_users(
     let items = users
         .select(USER_COLUMNS)
         .filter(crate::schema::users::nick_name.like(search_pattern))
+        .filter(id.ne(my_user_id))
         .load::<User>(conn)
         .map_err(handler_disel_error)?;
 

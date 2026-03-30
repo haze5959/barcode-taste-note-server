@@ -185,8 +185,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if barcode_exists(&mut conn, &code) {
                 consecutive_exists_count += 1;
-                if consecutive_exists_count >= 5 {
-                    println!("Found 5 consecutive existing barcodes. Stopping crawler.");
+                if consecutive_exists_count >= 3 {
+                    println!("Found 3 consecutive existing barcodes. Stopping crawler.");
                     return Ok(());
                 }
                 continue;
