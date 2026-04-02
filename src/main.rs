@@ -15,6 +15,9 @@ async fn main() -> std::io::Result<()> {
     dotenv().ok(); // Reads the .env file
     env_logger::init();
 
+    // Initialize rustls CryptoProvider (required for rustls 0.23+ when multiple/no default providers are present)
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = diesel::r2d2::Pool::builder()
         // .max_size(POOL_CONNECTION_SIZE)
@@ -72,6 +75,8 @@ async fn main() -> std::io::Result<()> {
             .route("/images", web::get().to(handlers::images_handlers::get_images))
             // BTN APP
             .route("/btn/home", web::get().to(handlers::btn_app_handlers::get_home_info))
+            // Webhooks
+            .route("/webhooks/appstore", web::post().to(handlers::webhook_handlers::handle_appstore_notification))
             // Authenticated routes
             .service(
                 web::scope("api")

@@ -46,31 +46,4 @@ impl R2Client {
 
         Ok(())
     }
-
-    pub async fn delete_image(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
-        self.client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .send()
-            .await?;
-
-        Ok(())
-    }
-
-    pub async fn move_to_deleted(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let destination_key = format!("deleted/{}", key);
-
-        self.client
-            .copy_object()
-            .bucket(&self.bucket)
-            .copy_source(format!("{}/{}", self.bucket, key))
-            .key(&destination_key)
-            .send()
-            .await?;
-
-        self.delete_image(key).await?;
-
-        Ok(())
-    }
 }

@@ -20,6 +20,7 @@ pub struct User {
     pub intro: Option<String>,
     pub image_id: Option<Uuid>,
     pub registered: Option<DateTime<Utc>>,
+    pub premium_expire_at: Option<DateTime<Utc>>,
 }
 
 pub type UserColumns = (
@@ -28,6 +29,7 @@ pub type UserColumns = (
     crate::schema::users::intro,
     crate::schema::users::image_id,
     crate::schema::users::registered,
+    crate::schema::users::premium_expire_at,
 );
 
 pub const USER_COLUMNS: UserColumns = (
@@ -36,6 +38,7 @@ pub const USER_COLUMNS: UserColumns = (
     crate::schema::users::intro,
     crate::schema::users::image_id,
     crate::schema::users::registered,
+    crate::schema::users::premium_expire_at,
 );
 
 #[derive(Insertable, Debug)]

@@ -1,30 +1,29 @@
 #!/bin/bash
 
-# 프로젝트 루트 디렉토리로 이동 (스크립트 위치 기준: batch/scripts/daily_job.sh -> 루트)
-PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# 프로젝트 루트 디렉토리로 이동 (daily_job.sh 스크립트 위치 기준)
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
-# 크론탭(Cron)은 기본 PATH가 매우 제한적이므로, Cargo 및 시스템 바이너리 경로를 명시해 줍니다.
-export PATH="$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
-
-# Rust 환경 변수 로드 (설치 방식에 따라 필요할 수 있음)
-if [ -f "$HOME/.cargo/env" ]; then
-    source "$HOME/.cargo/env"
+# 크론탭 환경에서는 Rust의 dotenvy가 정상 동작하지 않을 수 있으므로, bash에서 명시적으로 .env를 로드합니다.
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    set -a
+    source "$PROJECT_ROOT/.env"
+    set +a
 fi
 
-LOG_FILE="$PROJECT_ROOT/batch/daily_job.log"
+LOG_FILE="$PROJECT_ROOT/deploy_bin/daily_job.log"
 EMAIL="barcodetastenote@gmail.com"
 
 echo "[$(date)] === Daily Job Started ===" >> "$LOG_FILE"
 
 # 1. Crawler 실행
 echo "[$(date)] Running Crawler..." >> "$LOG_FILE"
-cargo run -p crawler >> "$LOG_FILE" 2>&1
+$PROJECT_ROOT/deploy_bin/barnote_crawler >> "$LOG_FILE" 2>&1
 CRAWLER_STATUS=$?
 
 # 2. DB Backup 실행
 echo "[$(date)] Running DB Backup..." >> "$LOG_FILE"
-cargo run -p batch -- backup_db >> "$LOG_FILE" 2>&1
+$PROJECT_ROOT/deploy_bin/barnote_batch backup_db >> "$LOG_FILE" 2>&1
 BACKUP_STATUS=$?
 
 # 실패 시 메일 발송

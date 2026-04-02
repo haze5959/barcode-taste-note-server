@@ -74,6 +74,10 @@ pub struct AdminDashboardResponse {
     pub monthly_note_count: i64,
     pub daily_note_count: i64,
     pub not_reply_report_count: i64,
+    pub premium_user_count: i64,
+    pub web_active_users_30d: Option<i64>,
+    pub ios_active_users_30d: Option<i64>,
+    pub android_active_users_30d: Option<i64>,
 }
 
 fn validate_admin(req: &HttpRequest) -> Result<(), CommonResponseError> {
@@ -86,6 +90,76 @@ fn validate_admin(req: &HttpRequest) -> Result<(), CommonResponseError> {
     Ok(())
 }
 
+async fn fetch_ga_total_users(property_id: &str, platform: &str) -> Option<i64> {
+    let provider = match gcp_auth::provider().await {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("Failed to create GCP provider: {}", e);
+            return None;
+        }
+    };
+
+    let token = match provider.token(&["https://www.googleapis.com/auth/analytics.readonly"]).await {
+        Ok(t) => t.as_str().to_string(),
+        Err(e) => {
+            log::error!("Failed to get GCP token: {}", e);
+            return None;
+        }
+    };
+
+    let url = format!("https://analyticsdata.googleapis.com/v1beta/properties/{}:runReport", property_id);
+    let body = serde_json::json!({
+        "dateRanges": [{ "startDate": "30daysAgo", "endDate": "today" }],
+        "metrics": [{ "name": "totalUsers" }],
+        "dimensionFilter": {
+            "filter": {
+                "fieldName": "platform",
+                "stringFilter": {
+                    "value": platform
+                }
+            }
+        }
+    });
+
+    let client = reqwest::Client::new();
+    let res = client.post(&url)
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .ok()?;
+
+    let json: serde_json::Value = match res.json().await {
+        Ok(j) => j,
+        Err(e) => {
+            log::error!("Failed to parse GA response JSON: {}", e);
+            return None;
+        }
+    };
+    
+    // 디버깅을 위해 응답 구조 로깅
+    log::info!("GA Response structure for property {} and platform {}: {}", property_id, platform, json);
+    
+    // 데이터가 아예 없는 경우 (rows가 생략됨) 0으로 처리
+    let rows = match json.get("rows") {
+        Some(r) => r.as_array(),
+        None => {
+            log::info!("GA Property {} - Platform {} has no rows, returning 0", property_id, platform);
+            return Some(0);
+        }
+    };
+
+    let count_str = rows?
+        .get(0)?
+        .get("metricValues")?
+        .as_array()?
+        .get(0)?
+        .get("value")?
+        .as_str()?;
+    
+    count_str.parse::<i64>().ok()
+}
+
 // ============================================
 // MARK: GET /admin/dashboard
 // ============================================
@@ -95,8 +169,30 @@ pub async fn get_dashboard(
 ) -> Result<HttpResponse, Error> {
     validate_admin(&req)?;
 
-    let dashboard_data = web::block(move || db_get_dashboard(db)).await??;
+    let db_clone = db.clone();
+    let dashboard_data_future = web::block(move || db_get_dashboard(db_clone));
     
+    let ga_pid = std::env::var("GA_PROPERTY_ID").ok();
+
+    let web_future = async {
+        if let Some(ref pid) = ga_pid { fetch_ga_total_users(&pid, "web").await } else { None }
+    };
+    
+    let ios_future = async {
+        if let Some(ref pid) = ga_pid { fetch_ga_total_users(&pid, "ios").await } else { None }
+    };
+
+    let android_future = async {
+        if let Some(ref pid) = ga_pid { fetch_ga_total_users(&pid, "android").await } else { None }
+    };
+
+    let (db_res, web_count, ios_count, android_count) = tokio::join!(dashboard_data_future, web_future, ios_future, android_future);
+    
+    let mut dashboard_data = db_res??;
+    dashboard_data.web_active_users_30d = web_count;
+    dashboard_data.ios_active_users_30d = ios_count;
+    dashboard_data.android_active_users_30d = android_count;
+
     let response = CommonResponse {
         result: true,
         data: dashboard_data,
@@ -145,6 +241,12 @@ fn db_get_dashboard(pool: web::Data<Pool>) -> Result<AdminDashboardResponse, Com
         .get_result::<i64>(conn)
         .map_err(handler_disel_error)?;
 
+    let premium_user_count = crate::schema::users::table
+        .filter(crate::schema::users::premium_expire_at.ge(now))
+        .count()
+        .get_result::<i64>(conn)
+        .map_err(handler_disel_error)?;
+
     Ok(AdminDashboardResponse {
         registered_user_count,
         monthly_registered_user_count,
@@ -152,6 +254,10 @@ fn db_get_dashboard(pool: web::Data<Pool>) -> Result<AdminDashboardResponse, Com
         monthly_note_count,
         daily_note_count,
         not_reply_report_count,
+        premium_user_count,
+        web_active_users_30d: None,
+        ios_active_users_30d: None,
+        android_active_users_30d: None,
     })
 }
 

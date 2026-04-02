@@ -37,6 +37,8 @@ actix-cors = "0.7.1"
 itertools = "0.14.0"
 aws-config = { version = "1.1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1.17"
+gcp_auth = "0.12.6"
+rustls = { version = "0.23.37", features = ["ring"] }
 
 [workspace]
 members = [

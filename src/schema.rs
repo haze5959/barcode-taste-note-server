@@ -120,6 +120,7 @@ diesel::table! {
         intro -> Nullable<Text>,
         image_id -> Nullable<Uuid>,
         registered -> Nullable<Timestamptz>,
+        premium_expire_at -> Nullable<Timestamptz>,
     }
 }
 
