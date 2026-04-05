@@ -11,6 +11,12 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
     set +a
 fi
 
+# 크론탭 환경에서는 Homebrew PATH가 빠져 있으므로 명시적으로 추가합니다.
+# - /opt/homebrew/opt/libpq/bin : pg_dump 경로
+# - /opt/homebrew/bin           : rclone 등 일반 Homebrew 도구 경로
+export PATH="/opt/homebrew/opt/libpq/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+
 LOG_FILE="$PROJECT_ROOT/deploy_bin/daily_job.log"
 EMAIL="barcodetastenote@gmail.com"
 

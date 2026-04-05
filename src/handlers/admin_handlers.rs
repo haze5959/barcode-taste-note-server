@@ -507,6 +507,34 @@ pub async fn merge_admin_product(
 }
 
 // ============================================
+// MARK: DELETE /admin/products/{product_id}
+// ============================================
+pub async fn delete_admin_product(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let product_id = path.into_inner();
+
+    web::block(move || {
+        let conn = &mut db.get().unwrap();
+        diesel::delete(products::table.find(product_id))
+            .execute(conn)
+            .map_err(handler_disel_error)
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
 // MARK: POST /admin/image
 // ============================================
 pub async fn upload_admin_image(

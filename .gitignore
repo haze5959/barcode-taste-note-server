@@ -1,6 +1,8 @@
 target/*
 static/*
 ssl/*
+logs/*
+deploy_bin/*
 crawler/target/*
 .env
 package.json
@@ -17,3 +19,4 @@ gemini_requests.log
 migrations/.keep
 
 barnote-1cb21-7536f37fd5e0.json
+batch/daily_job.log

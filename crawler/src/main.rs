@@ -130,6 +130,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut conn = establish_connection();
     let client = Client::new();
     let r2 = R2Client::new().await;
+
+    // .env의 OFW_SESSION_COOKIE 값으로 session 쿠키를 구성합니다.
+    // 값이 없으면 기존 방식(쿠키 없음)으로 진행됩니다.
+    let session_value = std::env::var("OFW_SESSION_COOKIE").unwrap_or_default();
+    let cookie_header = if session_value.is_empty() {
+        None
+    } else {
+        Some(format!("session={}", session_value))
+    };
     
     let mut consecutive_fails = 0;
     
@@ -137,7 +146,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Crawling page: {}", page);
         let url = format!("https://world.openfoodfacts.org/category/alcoholic-beverages.json?sort_by=created_t&page={}&page_size=50&fields=code,product_name,brands,categories_tags,image_url", page);
         
-        let Ok(resp) = client.get(&url).send().await else {
+        let mut req = client.get(&url);
+        if let Some(ref cookie) = cookie_header {
+            req = req.header("Cookie", cookie);
+        }
+        let Ok(resp) = req.send().await else {
             println!("Request error on page {}", page);
             log_failed_page(page);
             consecutive_fails += 1;
