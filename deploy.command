@@ -64,13 +64,13 @@ fi
 # 5. 서브 시스템 로깅 등을 위한 logs 폴더 생성
 LOGS_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$LOGS_DIR"
-SERVER_LOG="$LOGS_DIR/server_$(date +%Y%m%d).log"
 
 # 6. 메인 서버 재시작 (nohup을 통해 백그라운드 데몬화)
 echo "🟢 Starting the new Production server..."
 # 포트 해제 여유를 위해 잠시 더 대기
 sleep 1
-nohup "$DEPLOY_DIR/barnote_server" > "$SERVER_LOG" 2>&1 &
+# rotatelogs를 사용하여 매일 자정 기준으로 날짜별 로그 파일 자동 분리 (86400초)
+nohup sh -c "$DEPLOY_DIR/barnote_server 2>&1 | /usr/sbin/rotatelogs -l '$LOGS_DIR/server_%Y%m%d.log' 86400" > /dev/null 2>&1 &
 SERVER_PID=$!
 
 # 7. 실행 확인 (2초 뒤에 확인)
@@ -79,10 +79,10 @@ if ps -p $SERVER_PID > /dev/null; then
     echo ""
     echo "✅ Deployment Successful!"
     echo "   - Server is now running in background (PID: $SERVER_PID)"
-    echo "   - Main API Server Log : $SERVER_LOG"
+    echo "   - Main API Server Logs are being rotated automatically into: $LOGS_DIR/server_YYYYMMDD.log"
 else
     echo ""
-    echo "❌ Server failed to start! Check logs at: $SERVER_LOG"
+    echo "❌ Server failed to start! Check logs in: $LOGS_DIR"
     exit 1
 fi
 echo "======================================"

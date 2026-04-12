@@ -94,7 +94,7 @@ fn run_rclone_copy(dump_path: &PathBuf, rclone_dest: &str) {
         .arg("copy")
         .arg(dump_path)
         .arg(rclone_dest)
-        .arg("--progress")
+        .arg("--quiet")
         .status()
         .expect("rclone 실행 실패 — rclone이 설치되어 있는지 확인하세요");
 

@@ -4,13 +4,6 @@
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
-# 크론탭 환경에서는 Rust의 dotenvy가 정상 동작하지 않을 수 있으므로, bash에서 명시적으로 .env를 로드합니다.
-if [ -f "$PROJECT_ROOT/.env" ]; then
-    set -a
-    source "$PROJECT_ROOT/.env"
-    set +a
-fi
-
 # 크론탭 환경에서는 Homebrew PATH가 빠져 있으므로 명시적으로 추가합니다.
 # - /opt/homebrew/opt/libpq/bin : pg_dump 경로
 # - /opt/homebrew/bin           : rclone 등 일반 Homebrew 도구 경로

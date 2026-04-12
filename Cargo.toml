@@ -44,5 +44,6 @@ rustls = { version = "0.23.37", features = ["ring"] }
 members = [
     "crawler",
     "crawler/emart",
+    "crawler/artdrink",
     "batch"
 ]

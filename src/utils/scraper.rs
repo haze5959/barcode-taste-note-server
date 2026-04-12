@@ -29,6 +29,10 @@ fn clean_product_name(name: &str) -> String {
     let re_parens = RE_PARENS.get_or_init(|| Regex::new(r"\(.*?\)").unwrap());
     cleaned = re_parens.replace_all(&cleaned, " ").to_string();
     
+    static RE_YEARS: OnceLock<Regex> = OnceLock::new();
+    let re_years = RE_YEARS.get_or_init(|| Regex::new(r"(?i)\b(?:aged\s+)?(\d+)\s*years?(?:\s*old)?\b").unwrap());
+    cleaned = re_years.replace_all(&cleaned, "${1} Years Old").to_string();
+    
     static RE_ABV: OnceLock<Regex> = OnceLock::new();
     let re_abv = RE_ABV.get_or_init(|| Regex::new(r"(?i)\d+(\.\d+)?\s*%\s*(vol\.?)?").unwrap());
     cleaned = re_abv.replace_all(&cleaned, " ").to_string();

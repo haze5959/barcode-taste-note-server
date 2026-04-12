@@ -20,3 +20,5 @@ migrations/.keep
 
 barnote-1cb21-7536f37fd5e0.json
 batch/daily_job.log
+
+crawler/artdrink/output/new_product.json
