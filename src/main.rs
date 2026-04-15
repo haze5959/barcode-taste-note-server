@@ -73,6 +73,7 @@ async fn main() -> std::io::Result<()> {
             .route("/notes/{id}", web::get().to(handlers::notes_handlers::get_note_by_id))
             // Images
             .route("/images", web::get().to(handlers::images_handlers::get_images))
+            .route("/images", web::post().to(handlers::images_handlers::upload_image))
             // BTN APP
             .route("/btn/home", web::get().to(handlers::btn_app_handlers::get_home_info))
             // Webhooks
@@ -88,6 +89,7 @@ async fn main() -> std::io::Result<()> {
                             .route("/users/me", web::put().to(handlers::users_handler::update_user_nick))
                             .route("/users/me", web::delete().to(handlers::users_handler::delete_user))
                             .route("/users/search", web::get().to(handlers::users_handler::search_users))
+                            .route("/users/fcm_token", web::post().to(handlers::users_handler::set_fcm_token))
                             .route("/users/follower", web::get().to(handlers::users_handler::get_followers))
                             .route("/users/following", web::get().to(handlers::users_handler::get_followings))
                             .route("/users/following", web::post().to(handlers::users_handler::follow_user))

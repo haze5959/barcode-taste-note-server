@@ -28,9 +28,6 @@ cargo run -p batch -- clean_image
 **실행 명령어:**
 ```bash
 cargo run add_product_with_json
-
-# 또는 부모 디렉토리에서 실행
-cargo run -p batch -- add_product_with_json
 ```
 
 **JSON 파일 위치:** `batch/data/new_product.json`

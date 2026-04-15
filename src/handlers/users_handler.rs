@@ -52,6 +52,13 @@ pub struct UserDetailResponse {
     pub is_following: Option<bool>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FcmTokenRequest {
+    pub token: String,
+    pub user_id: Uuid,
+    pub is_active: bool,
+}
+
 // ============================================
 // MARK: Handler for GET
 // ============================================
@@ -209,7 +216,24 @@ pub async fn follow_user(
     item: web::Json<FollowParams>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
-    let _ = web::block(move || db_follow_user(db, auth_info, item.into_inner())).await??;
+    let target_user_id_str = item.user_id.to_string();
+    let db_res = web::block(move || db_follow_user(db, auth_info, item.into_inner())).await??;
+    
+    if let Some((my_nick, tokens)) = db_res {
+        for token in tokens {
+            let nick_copy = my_nick.clone();
+            let target_uid_copy = target_user_id_str.clone();
+            actix_rt::spawn(async move {
+                crate::utils::fcm::send_fcm_push(
+                    &token,
+                    "notification_new_follower",
+                    vec![nick_copy],
+                    &target_uid_copy,
+                ).await;
+            });
+        }
+    }
+
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,
         data: None,
@@ -218,6 +242,19 @@ pub async fn follow_user(
     Ok(HttpResponse::Ok().json(response))
 }
 
+/// Path: POST /api/users/fcm_token
+pub async fn set_fcm_token(
+    db: web::Data<Pool>,
+    item: web::Json<FcmTokenRequest>,
+) -> Result<HttpResponse, Error> {
+    let _ = web::block(move || db_set_fcm_token(db, item.into_inner())).await??;
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
 
 // ============================================
 // MARK: Handler for PUT
@@ -649,10 +686,19 @@ fn db_follow_user(
     pool: web::Data<Pool>,
     auth_info: AuthInfo,
     params: FollowParams,
-) -> Result<(), CommonResponseError> {
+) -> Result<Option<(String, Vec<String>)>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
-    let my_user_id = get_user_id_by_sub(conn, &auth_info.sub)?;
+    let me: User = users
+        .select(USER_COLUMNS)
+        .filter(sub.eq(&auth_info.sub))
+        .first::<User>(conn)
+        .map_err(|e| match e {
+            diesel::result::Error::NotFound => CommonResponseError::RecordNotFound,
+            _ => handler_disel_error(e),
+        })?;
+
+    let my_user_id = me.id;
 
     // 이미 팔로우 중인지 확인
     let already_follows: i64 = follows::table
@@ -663,7 +709,7 @@ fn db_follow_user(
         .map_err(handler_disel_error)?;
 
     if already_follows > 0 {
-        return Ok(());
+        return Ok(None);
     }
 
     let new_follow = NewFollow {
@@ -677,7 +723,16 @@ fn db_follow_user(
         .execute(conn)
         .map_err(handler_disel_error)?;
 
-    Ok(())
+    use crate::schema::fcm_tokens;
+
+    let target_tokens: Vec<String> = fcm_tokens::table
+        .filter(fcm_tokens::user_id.eq(params.user_id))
+        .filter(fcm_tokens::is_active.eq(1))
+        .select(fcm_tokens::token)
+        .load::<String>(conn)
+        .unwrap_or_default();
+
+    Ok(Some((me.nick_name, target_tokens)))
 }
 
 /// 나를 팔로우하는 유저 목록 (follows.following_user_id = 내 user_id)
@@ -805,4 +860,35 @@ fn db_build_user_detail_items(
     items.sort_by(|a, b| b.follower_count.cmp(&a.follower_count));
 
     Ok(items)
+}
+
+fn db_set_fcm_token(
+    pool: web::Data<Pool>,
+    params: FcmTokenRequest,
+) -> Result<(), CommonResponseError> {
+    use crate::schema::fcm_tokens;
+    use diesel::upsert::excluded;
+    let conn = &mut pool.get().unwrap();
+
+    let new_fcm = crate::models::NewFcmToken {
+        token: &params.token,
+        user_id: params.user_id,
+        is_active: if params.is_active { 1 } else { 0 },
+        updated_at: chrono::Utc::now(),
+    };
+
+    // Upsert (ON CONFLICT DO UPDATE) 
+    insert_into(fcm_tokens::table)
+        .values(&new_fcm)
+        .on_conflict(fcm_tokens::token)
+        .do_update()
+        .set((
+            fcm_tokens::user_id.eq(excluded(fcm_tokens::user_id)),
+            fcm_tokens::is_active.eq(excluded(fcm_tokens::is_active)),
+            fcm_tokens::updated_at.eq(excluded(fcm_tokens::updated_at)),
+        ))
+        .execute(conn)
+        .map_err(handler_disel_error)?;
+
+    Ok(())
 }

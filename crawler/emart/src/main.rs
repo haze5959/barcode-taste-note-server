@@ -99,11 +99,12 @@ Follow these rules strictly to generate the response:
    - EXCLUDE promotional subtitles, limited edition markers, seasonal artwork names, or capacity (ml/L).
    - EXCLUDE any packaging or container descriptors such as Can, Bottle, Draft, Draught, Pack, Q Pack, Keg, Box, Pouch, Cup, PET, or similar terms.
    - REMOVE special characters/symbols (e.g., hyphens).
-   - Use Title Case (e.g., 'Suntory Royal Blended Whisky').
-   - Examples: 'Asahi Super Dry Draft Beer Can 340ml' → 'Asahi Super Dry', 'Cass Fresh Q Pack 1.6L' → 'Cass Fresh'.
+   - EXCLUDE category names from the end of the product name, such as Whiskey, Whisky, Wine, Sake, Soju, Beer, etc.
+   - Use Title Case.
+   - Examples: 'Jack Daniel's Fire Whiskey 0.7L (5099873006504)' → 'Jack Daniel's Fire', 'Jim Beam Whiskey' → 'Jim Beam'.
 
 3. DESCRIPTION:
-   - Provide a professional English description.
+   - Provide a professional English description WITHOUT repeating or starting with the product name.
    - Include brand, standard ABV, production methods, and key flavor markers.
    - MANDATORY: Keep it factual, encyclopedia-style, and STRICTLY UNDER 200 characters.
 

@@ -89,21 +89,81 @@ pub async fn create_note(
     let item_for_db = item.clone();
     let db_clone = db.clone();
     let r2_clone = r2.clone();
+    let my_sub = auth_info.sub.clone();
+
     let note =
         web::block(move || db_create_note(db_clone, r2_clone, actix_web::web::Json(item_for_db), auth_info))
             .await??;
 
-    // 비동기로 제품 정보 업데이트 (flavors, rating, note_count)
+    // 비동기로 제품 정보 업데이트 (flavors, rating, note_count) 및 Push 발송
     let product_id = item.product_id;
     let rating = item.rating;
     let selected_flavors = item.selected_flavors.clone();
+    let public_scope = item.public_scope;
     let db_clone = db.clone();
 
     spawn(async move {
+        // 제품 업데이트
+        let db_for_stats = db_clone.clone();
         let _ = web::block(move || {
-            db_update_product_stats(db_clone, product_id, rating, selected_flavors)
+            db_update_product_stats(db_for_stats, product_id, rating, selected_flavors)
         })
         .await;
+
+        // 푸시 발송 (공개 노트인 경우)
+        if public_scope != 0 {
+            let db_for_push = db_clone.clone();
+            let push_data = web::block(move || {
+                let conn = &mut db_for_push.get().unwrap();
+                use crate::schema::{users, follows, fcm_tokens};
+
+                if let Ok(me) = users::table
+                    .select(crate::models::USER_COLUMNS)
+                    .filter(users::sub.eq(&my_sub))
+                    .first::<User>(conn)
+                {
+                    // 나를 팔로우하는 유저 id 목록 조회
+                    let follower_ids: Vec<Uuid> = follows::table
+                        .filter(follows::following_user_id.eq(me.id))
+                        .select(follows::user_id)
+                        .load::<Uuid>(conn)
+                        .unwrap_or_default();
+
+                    if follower_ids.is_empty() {
+                        return Ok::<_, CommonResponseError>(None);
+                    }
+
+                    // 팔로워들의 FCM 토큰 조회
+                    let tokens: Vec<String> = fcm_tokens::table
+                        .filter(fcm_tokens::user_id.eq_any(follower_ids))
+                        .filter(fcm_tokens::is_active.eq(1))
+                        .select(fcm_tokens::token)
+                        .load::<String>(conn)
+                        .unwrap_or_default();
+
+                    if !tokens.is_empty() {
+                        return Ok(Some((me.nick_name, me.id.to_string(), tokens)));
+                    }
+                }
+                Ok(None)
+            })
+            .await;
+
+            if let Ok(Ok(Some((nick_name, my_uid_str, tokens)))) = push_data {
+                for token in tokens {
+                    let nick = nick_name.clone();
+                    let target_uid = my_uid_str.clone();
+                    actix_rt::spawn(async move {
+                        crate::utils::fcm::send_fcm_push(
+                            &token,
+                            "notification_new_note",
+                            vec![nick],
+                            &target_uid,
+                        ).await;
+                    });
+                }
+            }
+        }
     });
 
     let response = CommonResponse {

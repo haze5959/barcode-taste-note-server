@@ -73,11 +73,12 @@ Follow these rules strictly to generate the response:
    - EXCLUDE promotional subtitles, limited edition markers, seasonal artwork names, or capacity (ml/L).
    - EXCLUDE any packaging or container descriptors such as Can, Bottle, Draft, Draught, Pack, Q Pack, Keg, Box, Pouch, Cup, PET, or similar terms.
    - REMOVE special characters/symbols (e.g., hyphens).
+   - EXCLUDE category names from the end of the product name, such as Whiskey, Whisky, Wine, Sake, Soju, Beer, etc.
    - Use Title Case.
-   - Examples: 'Jack Daniel's Fire Whiskey 0.7L (5099873006504)' → 'Jack Daniel's Fire Whiskey'.
+   - Examples: 'Jack Daniel's Fire Whiskey 0.7L (5099873006504)' → 'Jack Daniel's Fire', 'Jim Beam Whiskey' → 'Jim Beam'.
 
 3. DESCRIPTION:
-   - Provide a professional English description.
+   - Provide a professional English description WITHOUT repeating or starting with the product name.
    - Include brand, standard ABV, production methods, and key flavor markers.
    - MANDATORY: Keep it factual, encyclopedia-style, and STRICTLY UNDER 200 characters.
 
@@ -179,7 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let base_url = format!(
-        "https://artdrink.com.ua/index.php?route=product/category&path={}&category_id={}&limit=100&sort=p.sort_order&order=ASC",
+        "https://artdrink.com.ua/index.php?route=product/category&path={}&category_id={}&limit=12&sort=p.sort_order&order=ASC",
         path_id, category_id
     );
 
@@ -274,6 +275,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         type_: product_type.clone(),
                         image_url,
                     });
+                    // 저장 주기를 앞으로 당겨 실시간으로 파일에 기록되도록 합니다.
+                    save_output(&all_results);
                 }
                 Err(e) => {
                     println!("  ✗ {} 실패: {}", raw_name, e);

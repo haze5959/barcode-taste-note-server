@@ -62,7 +62,7 @@ pub async fn upload_image(
     r2: web::Data<R2Client>,
     MultipartForm(form): MultipartForm<ImageUploadForm>,
 ) -> Result<HttpResponse, Error> {
-    let auth_info = get_auth_info(req)?;
+    let auth_info = get_auth_info(req).ok();
     let image_id = Uuid::parse_str(&form.id.0)
         .map_err(|_| CommonResponseError::InvalidParameter)?;
     
@@ -84,7 +84,7 @@ pub async fn upload_image(
 
     let r2_for_db = r2.clone();
     let image = web::block(move || {
-        db_add_product_image(db, r2_for_db, product_id, note_id, Some(auth_info), image_id)
+        db_add_product_image(db, r2_for_db, product_id, note_id, auth_info, image_id)
     })
     .await??;
 

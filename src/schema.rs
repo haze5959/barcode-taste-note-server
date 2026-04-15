@@ -26,6 +26,18 @@ diesel::table! {
     use diesel::sql_types::*;
     use pgvector::sql_types::Vector;
 
+    fcm_tokens (token) {
+        token -> Text,
+        user_id -> Uuid,
+        is_active -> Int2,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     flavor_tags (id) {
         id -> Uuid,
         flavor -> Int2,
@@ -127,6 +139,7 @@ diesel::table! {
 diesel::joinable!(barcodes -> products (product_id));
 diesel::joinable!(favorites -> products (product_id));
 diesel::joinable!(favorites -> users (user_id));
+diesel::joinable!(fcm_tokens -> users (user_id));
 diesel::joinable!(flavor_tags -> notes (note_id));
 diesel::joinable!(flavor_tags -> products (product_id));
 diesel::joinable!(notes -> products (product_id));
@@ -138,6 +151,7 @@ diesel::joinable!(reports -> users (user_id));
 diesel::allow_tables_to_appear_in_same_query!(
     barcodes,
     favorites,
+    fcm_tokens,
     flavor_tags,
     follows,
     notes,

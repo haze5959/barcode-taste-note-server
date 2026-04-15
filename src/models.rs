@@ -305,6 +305,24 @@ pub struct NewFollow {
     pub following_user_id: Uuid,
 }
 
+#[derive(Queryable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = fcm_tokens)]
+pub struct FcmToken {
+    pub token: String,
+    pub user_id: Uuid,
+    pub is_active: i16,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = fcm_tokens)]
+pub struct NewFcmToken<'a> {
+    pub token: &'a str,
+    pub user_id: Uuid,
+    pub is_active: i16,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NoteListQuery {
     pub page: Option<i64>,

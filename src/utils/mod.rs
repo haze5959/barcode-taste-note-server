@@ -1,5 +1,6 @@
 pub mod logger;
 pub mod auth;
+pub mod fcm;
 pub mod response_mapper;
 pub mod openai;
 pub mod scraper;
