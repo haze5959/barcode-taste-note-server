@@ -290,7 +290,7 @@ pub struct NewReport {
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]
-#[diesel(table_name = follows)]
+#[diesel(table_name = follows, primary_key(id))]
 pub struct Follow {
     pub user_id: Uuid,
     pub following_user_id: Uuid,

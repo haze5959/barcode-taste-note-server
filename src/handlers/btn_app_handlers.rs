@@ -264,7 +264,7 @@ fn db_create_report(
     // sub로 user_id 조회 (못 찾으면 실패)
     let user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(id) => id,
-        Err(CommonResponseError::RecordNotFound) => return Err(CommonResponseError::AuthValidationFail),
+        Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info.clone(), r2)?.id,
         Err(e) => return Err(e),
     };
 

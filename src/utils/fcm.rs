@@ -6,6 +6,7 @@ pub async fn send_fcm_push(
     loc_key: &str,
     loc_args: Vec<String>,
     data_user_id: &str,
+    data_type: &str,
 ) {
     let provider = match gcp_auth::provider().await {
         Ok(p) => p,
@@ -54,7 +55,8 @@ pub async fn send_fcm_push(
                 }
             },
             "data": {
-                "user_id": data_user_id
+                "user_id": data_user_id,
+                "type": data_type
             }
         }
     });

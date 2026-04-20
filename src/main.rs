@@ -85,6 +85,7 @@ async fn main() -> std::io::Result<()> {
                             // Users
                             .route("/users", web::post().to(handlers::users_handler::add_user))
                             .route("/users/me", web::get().to(handlers::users_handler::get_my_info))
+                            .route("/users/mypage", web::get().to(handlers::users_handler::get_my_page))
                             .route("/users/favorites", web::get().to(handlers::users_handler::get_my_favorites))
                             .route("/users/me", web::put().to(handlers::users_handler::update_user_nick))
                             .route("/users/me", web::delete().to(handlers::users_handler::delete_user))

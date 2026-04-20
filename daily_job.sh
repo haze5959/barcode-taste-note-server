@@ -19,8 +19,7 @@ export PATH="/opt/homebrew/opt/libpq/bin:/opt/homebrew/bin:/usr/local/bin:/usr/b
 LOG_FILE="$PROJECT_ROOT/deploy_bin/daily_job.log"
 EMAIL="barcodetastenote@gmail.com"
 
-echo "##################[$(date)]#####################"
-echo "=== Daily Job Started ===" >> "$LOG_FILE"
+echo "#########[$(date)]############" >> "$LOG_FILE"
 
 # 1. Crawler 실행
 echo "Running Crawler..." >> "$LOG_FILE"
@@ -48,7 +47,5 @@ if [ $CRAWLER_STATUS -ne 0 ] || [ $BACKUP_STATUS -ne 0 ]; then
 else
     echo "All jobs completed successfully." >> "$LOG_FILE"
 fi
-
-echo "=== Daily Job Finished ===" >> "$LOG_FILE"
+echo "###################################################" >> "$LOG_FILE"
 echo "" >> "$LOG_FILE"
-echo "###################################################"

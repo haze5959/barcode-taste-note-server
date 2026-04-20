@@ -56,7 +56,13 @@ pub struct UserDetailResponse {
 pub struct FcmTokenRequest {
     pub token: String,
     pub user_id: Uuid,
-    pub is_active: bool,
+    pub is_active: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MyPageResponse {
+    pub my_info: UserDetailResponse,
+    pub product_ids: Vec<Uuid>,
 }
 
 // ============================================
@@ -85,6 +91,33 @@ pub async fn get_my_info(
     let response = CommonResponse {
         result: true,
         data: user_info,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// Path: /users/mypage
+pub async fn get_my_page(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req.clone())?;
+    
+    let db_for_block = db.clone();
+    let r2_for_block = r2.clone();
+    let result = web::block(move || {
+        let info = get_user_info_by_sub(db_for_block.clone(), r2_for_block.clone(), auth_info.clone())?;
+        let favs = get_user_favorites_by_sub(db_for_block, r2_for_block, auth_info)?;
+        Ok::<_, CommonResponseError>(MyPageResponse {
+            my_info: info,
+            product_ids: favs,
+        })
+    }).await??;
+    
+    let response = CommonResponse {
+        result: true,
+        data: result,
         error: None,
     };
     Ok(HttpResponse::Ok().json(response))
@@ -229,6 +262,7 @@ pub async fn follow_user(
                     "notification_new_follower",
                     vec![nick_copy],
                     &target_uid_copy,
+                    "new_follower",
                 ).await;
             });
         }
@@ -297,10 +331,10 @@ pub async fn delete_user(req: HttpRequest, db: web::Data<Pool>) -> Result<HttpRe
 pub async fn unfollow_user(
     req: HttpRequest,
     db: web::Data<Pool>,
-    follow_id: web::Path<Uuid>,
+    unfollow_user_id: web::Path<Uuid>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
-    let _ = web::block(move || db_unfollow_user(db, auth_info, follow_id.into_inner())).await??;
+    let _ = web::block(move || db_unfollow_user(db, auth_info, unfollow_user_id.into_inner())).await??;
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,
         data: None,
@@ -779,7 +813,7 @@ fn db_get_followings(
 fn db_unfollow_user(
     pool: web::Data<Pool>,
     auth_info: AuthInfo,
-    follow_id: Uuid,
+    unfollow_user_id: Uuid,
 ) -> Result<(), CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
@@ -787,15 +821,12 @@ fn db_unfollow_user(
 
     // 해당 row가 나의 팔로우 row인지 확인
     let follow: Follow = follows::table
-        .find(follow_id)
+        .filter(follows::user_id.eq(my_user_id))
+        .filter(follows::following_user_id.eq(unfollow_user_id))
         .first::<Follow>(conn)
         .map_err(handler_disel_error)?;
 
-    if follow.user_id != my_user_id {
-        return Err(CommonResponseError::AuthValidationFail);
-    }
-
-    delete(follows::table.find(follow_id))
+    delete(&follow)
         .execute(conn)
         .map_err(handler_disel_error)?;
 
@@ -873,22 +904,36 @@ fn db_set_fcm_token(
     let new_fcm = crate::models::NewFcmToken {
         token: &params.token,
         user_id: params.user_id,
-        is_active: if params.is_active { 1 } else { 0 },
+        is_active: params.is_active.map(|v| if v { 1 } else { 0 }).unwrap_or(1),
         updated_at: chrono::Utc::now(),
     };
 
-    // Upsert (ON CONFLICT DO UPDATE) 
-    insert_into(fcm_tokens::table)
-        .values(&new_fcm)
-        .on_conflict(fcm_tokens::token)
-        .do_update()
-        .set((
-            fcm_tokens::user_id.eq(excluded(fcm_tokens::user_id)),
-            fcm_tokens::is_active.eq(excluded(fcm_tokens::is_active)),
-            fcm_tokens::updated_at.eq(excluded(fcm_tokens::updated_at)),
-        ))
-        .execute(conn)
-        .map_err(handler_disel_error)?;
+    if params.is_active.is_some() {
+        // Upsert (ON CONFLICT DO UPDATE) 
+        insert_into(fcm_tokens::table)
+            .values(&new_fcm)
+            .on_conflict(fcm_tokens::token)
+            .do_update()
+            .set((
+                fcm_tokens::user_id.eq(excluded(fcm_tokens::user_id)),
+                fcm_tokens::is_active.eq(excluded(fcm_tokens::is_active)),
+                fcm_tokens::updated_at.eq(excluded(fcm_tokens::updated_at)),
+            ))
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+    } else {
+        // Upsert without updating is_active if it is missing
+        insert_into(fcm_tokens::table)
+            .values(&new_fcm)
+            .on_conflict(fcm_tokens::token)
+            .do_update()
+            .set((
+                fcm_tokens::user_id.eq(excluded(fcm_tokens::user_id)),
+                fcm_tokens::updated_at.eq(excluded(fcm_tokens::updated_at)),
+            ))
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+    }
 
     Ok(())
 }

@@ -159,6 +159,7 @@ pub async fn create_note(
                             "notification_new_note",
                             vec![nick],
                             &target_uid,
+                            "new_note",
                         ).await;
                     });
                 }
