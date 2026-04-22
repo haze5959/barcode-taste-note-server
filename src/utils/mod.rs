@@ -9,3 +9,4 @@ pub mod rate_limit;
 pub mod gemini;
 pub mod db;
 pub mod r2;
+pub mod nickname;

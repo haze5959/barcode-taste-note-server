@@ -1,7 +1,11 @@
 use serde_json::json;
 use log::error;
+use actix_web::web;
+use diesel::prelude::*;
+use crate::schema::fcm_tokens;
 
 pub async fn send_fcm_push(
+    db: web::Data<crate::Pool>,
     token: &str,
     loc_key: &str,
     loc_args: Vec<String>,
@@ -74,6 +78,16 @@ pub async fn send_fcm_push(
                 let status = r.status();
                 let err_text = r.text().await.unwrap_or_default();
                 error!("FCM Error {}: {}", status, err_text);
+                
+                if status == 404 && err_text.contains("UNREGISTERED") {
+                    let token_clone = token.to_string();
+                    let _ = web::block(move || {
+                        if let Ok(mut conn) = db.get() {
+                            let _ = diesel::delete(fcm_tokens::table.filter(fcm_tokens::token.eq(token_clone)))
+                                .execute(&mut conn);
+                        }
+                    }).await;
+                }
             }
         }
         Err(e) => {

@@ -1,5 +1,6 @@
 use crate::Pool;
-use crate::constants::DEFAULT_NICK;
+use lazy_static::lazy_static;
+use std::sync::Mutex;
 use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
@@ -20,6 +21,10 @@ use serde::{Deserialize, Serialize};
 use std::vec::Vec;
 use uuid::Uuid;
 
+lazy_static! {
+    static ref REGISTER_MUTEX: Mutex<()> = Mutex::new(());
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddUserParams {
     pub nick_name: Option<String>,
@@ -27,7 +32,9 @@ pub struct AddUserParams {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchUserQuery {
-    pub nick_name: String,
+    pub nick_name: Option<String>,
+    pub page: Option<i64>,
+    pub per: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -250,14 +257,17 @@ pub async fn follow_user(
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let target_user_id_str = item.user_id.to_string();
+    let db_for_fcm_base = db.clone();
     let db_res = web::block(move || db_follow_user(db, auth_info, item.into_inner())).await??;
     
     if let Some((my_nick, tokens)) = db_res {
         for token in tokens {
             let nick_copy = my_nick.clone();
             let target_uid_copy = target_user_id_str.clone();
+            let db_for_fcm = db_for_fcm_base.clone();
             actix_rt::spawn(async move {
                 crate::utils::fcm::send_fcm_push(
+                    db_for_fcm,
                     &token,
                     "notification_new_follower",
                     vec![nick_copy],
@@ -388,7 +398,6 @@ fn db_search_users(
     auth_info: AuthInfo,
 ) -> Result<Vec<UserDetailResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-    let search_pattern = format!("%{}%", query.nick_name);
 
     let my_user_id = match get_user_id_by_sub(conn, &auth_info.sub) {
         Ok(uid) => uid,
@@ -396,10 +405,26 @@ fn db_search_users(
         Err(e) => return Err(e),
     };
 
-    let items = users
+    let page = query.page.unwrap_or(1);
+    let per = query.per.unwrap_or(10);
+    let offset = (page - 1) * per;
+
+    let mut user_query = users
         .select(USER_COLUMNS)
-        .filter(crate::schema::users::nick_name.like(search_pattern))
         .filter(id.ne(my_user_id))
+        .into_boxed();
+
+    if let Some(nick) = query.nick_name {
+        if !nick.trim().is_empty() {
+            let search_pattern = format!("%{}%", nick);
+            user_query = user_query.filter(crate::schema::users::nick_name.like(search_pattern));
+        }
+    }
+
+    let items = user_query
+        .order(crate::schema::users::registered.desc())
+        .offset(offset)
+        .limit(per)
         .load::<User>(conn)
         .map_err(handler_disel_error)?;
 
@@ -604,17 +629,33 @@ pub(crate) fn register_user(
     auth_info: AuthInfo,
     r2: web::Data<R2Client>,
 ) -> Result<User, CommonResponseError> {
+    let _lock = REGISTER_MUTEX.lock().unwrap();
+
+    // 0. 이미 등록되었는지 다시 한 번 확인 (Data Race 방지용 Double-Check)
+    if let Ok(uid) = get_user_id_by_sub(conn, &auth_info.sub) {
+        return users
+            .select(USER_COLUMNS)
+            .find(uid)
+            .first::<User>(conn)
+            .map_err(handler_disel_error);
+    }
+
+    // 1. 유저 ID 미리 생성 (닉네임 생성기에 사용)
+    let new_uuid = Uuid::new_v4();
+
     let user_sub = auth_info.sub.as_str();
     let _token = auth_info.token.as_deref();
     let nick: String = if let Some(n) = provided_nick_name.as_deref() {
         n.to_string()
     } else {
-        let user_count = users
-            .select(id)
-            .count()
-            .get_result::<i64>(conn)
-            .map_err(handler_disel_error)?;
-        format!("{DEFAULT_NICK}{user_count}")
+        let mut candidate = crate::utils::nickname::generate_nickname(&auth_info.locale, &new_uuid);
+        while select(exists(users.filter(nick_name.eq(&candidate))))
+            .get_result::<bool>(conn)
+            .unwrap_or(true) 
+        {
+            candidate = crate::utils::nickname::generate_nickname(&auth_info.locale, &Uuid::new_v4());
+        }
+        candidate
     };
 
     // nick, sub 중복 체크
@@ -630,10 +671,7 @@ pub(crate) fn register_user(
     if is_duplicate {
         return Err(CommonResponseError::DuplicatedError);
     }
-
-    // 1. 유저 ID 생성
-    let new_uuid = Uuid::new_v4();
-    
+  
     // 2. 프로필 이미지 업로드
     let rt = actix_rt::Runtime::new().unwrap();
     let is_uploaded = rt.block_on(upload_profile_from_auth0(r2, auth_info.clone(), new_uuid));

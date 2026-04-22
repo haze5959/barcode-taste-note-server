@@ -48,6 +48,13 @@ fn clean_product_name(name: &str) -> String {
     static RE_SPAM: OnceLock<Regex> = OnceLock::new();
     let re_spam = RE_SPAM.get_or_init(|| Regex::new(r"(?i)\b(empty|can only|no drink|used|aluminum|pull tab|beer can|from \d{4})\b").unwrap());
     cleaned = re_spam.replace_all(&cleaned, " ").to_string();
+
+    // 주류 종류 및 용기, 원산지 스팸 단어 제거
+    static RE_LIQUOR_TERMS: OnceLock<Regex> = OnceLock::new();
+    let re_liquor = RE_LIQUOR_TERMS.get_or_init(|| {
+        Regex::new(r"(?i)\b(red wine|white wine|rose wine|sparkling wine|wine|whiskey|whisky|bourbon|scotch|vodka|gin|rum|tequila|cognac|brandy|liqueur|beer|soju|sake|cocktail|bottle|bottles|can|cans|glass|from california|from france|from italy|from spain|from australia|from chile|from argentina)\b").unwrap()
+    });
+    cleaned = re_liquor.replace_all(&cleaned, " ").to_string();
     
     static RE_SYMBOLS: OnceLock<Regex> = OnceLock::new();
     let re_symbols = RE_SYMBOLS.get_or_init(|| Regex::new(r"[-_—|/·,]").unwrap());

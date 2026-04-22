@@ -153,8 +153,10 @@ pub async fn create_note(
                 for token in tokens {
                     let nick = nick_name.clone();
                     let target_uid = my_uid_str.clone();
+                    let db_for_fcm = db_clone.clone();
                     actix_rt::spawn(async move {
                         crate::utils::fcm::send_fcm_push(
+                            db_for_fcm,
                             &token,
                             "notification_new_note",
                             vec![nick],

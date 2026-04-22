@@ -121,10 +121,11 @@ pub async fn get_my_reports(
 pub async fn create_report(
     req: HttpRequest,
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     item: web::Json<CreateReportParams>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
-    let report = web::block(move || db_create_report(db, item, auth_info)).await??;
+    let report = web::block(move || db_create_report(db, r2, item, auth_info)).await??;
     let response = CommonResponse {
         result: true,
         data: report,
@@ -256,6 +257,7 @@ fn db_get_my_reports(
 
 fn db_create_report(
     pool: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     item: web::Json<CreateReportParams>,
     auth_info: AuthInfo,
 ) -> Result<Report, CommonResponseError> {
