@@ -557,6 +557,8 @@ fn db_get_product_by_id(
     let image_ids: Vec<Uuid> = product_images::table
         .filter(product_images::product_id.eq(in_product_id))
         .select(product_images::id)
+        .order((product_images::note_id.desc(), product_images::registered.asc()))
+        .limit(10)
         .load::<Uuid>(conn)
         .map_err(handler_disel_error)?;
 
@@ -623,6 +625,8 @@ fn db_get_product_by_barcode(
     let image_ids: Vec<Uuid> = product_images::table
         .filter(product_images::product_id.eq(product_id))
         .select(product_images::id)
+        .order((product_images::note_id.desc(), product_images::registered.asc()))
+        .limit(10)
         .load::<Uuid>(conn)
         .map_err(handler_disel_error)?;
 
@@ -775,6 +779,7 @@ fn build_product_list_items(
         let image_ids: Vec<Uuid> = product_images::table
             .filter(product_images::product_id.eq(product.id))
             .select(product_images::id)
+            .order((product_images::note_id.desc(), product_images::registered.asc()))
             .limit(3)
             .load::<Uuid>(conn)
             .map_err(handler_disel_error)?;
@@ -955,6 +960,7 @@ fn db_get_favorite_products_by_user_id(
         let image_ids: Vec<Uuid> = product_images::table
             .filter(product_images::product_id.eq(product.id))
             .select(product_images::id)
+            .order((product_images::note_id.desc(), product_images::registered.asc()))
             .limit(3)
             .load::<Uuid>(conn)
             .map_err(handler_disel_error)?;
@@ -1095,6 +1101,7 @@ fn db_get_tasted_products(
         let image_ids: Vec<Uuid> = product_images::table
             .filter(product_images::product_id.eq(product.id))
             .select(product_images::id)
+            .order((product_images::note_id.desc(), product_images::registered.asc()))
             .limit(3)
             .load::<Uuid>(conn)
             .map_err(handler_disel_error)?;
