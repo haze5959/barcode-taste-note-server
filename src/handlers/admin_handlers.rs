@@ -349,6 +349,7 @@ fn db_get_admin_product_main_image(pool: web::Data<Pool>, product_id: Uuid) -> R
     let main_image_id = product_images::table
         .filter(product_images::product_id.eq(product_id))
         .filter(product_images::note_id.is_null())
+        .order(product_images::registered.asc())
         .select(product_images::id)
         .first::<Uuid>(conn)
         .optional()

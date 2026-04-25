@@ -1,5 +1,5 @@
 use serde_json::json;
-use log::error;
+use log::{error, info};
 use actix_web::web;
 use diesel::prelude::*;
 use crate::schema::fcm_tokens;
@@ -77,9 +77,8 @@ pub async fn send_fcm_push(
             if !r.status().is_success() {
                 let status = r.status();
                 let err_text = r.text().await.unwrap_or_default();
-                error!("FCM Error {}: {}", status, err_text);
-                
                 if status == 404 && err_text.contains("UNREGISTERED") {
+                    info!("FCM Token UNREGISTERED. Auto-removed token from DB: {}", token);
                     let token_clone = token.to_string();
                     let _ = web::block(move || {
                         if let Ok(mut conn) = db.get() {
@@ -87,6 +86,8 @@ pub async fn send_fcm_push(
                                 .execute(&mut conn);
                         }
                     }).await;
+                } else {
+                    error!("FCM Error {}: {}", status, err_text);
                 }
             }
         }

@@ -207,3 +207,69 @@ pub async fn download_image(r2: &crate::utils::r2::R2Client, url: &str, image_id
 
     Ok(())
 }
+
+/// DuckDuckGo 이미지 검색으로 제품명 검색 후 첫 번째 이미지 URL 반환
+pub async fn search_duckduckgo_image_url(product_name: &str) -> Option<String> {
+    static VQD_RE: OnceLock<Regex> = OnceLock::new();
+    let vqd_re = VQD_RE.get_or_init(|| Regex::new(r#"vqd=["']?([\d-]+)["']?"#).unwrap());
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .build()
+        .ok()?;
+
+    // Step 1: vqd 토큰 취득
+    let init_resp = client
+        .get("https://duckduckgo.com/")
+        .query(&[("q", product_name), ("iax", "images"), ("ia", "images")])
+        .send()
+        .await
+        .ok()?;
+
+    let html = init_resp.text().await.ok()?;
+    
+    // vqd 추출 실패 시 로그를 남겨서 나중에 DDG 정책이 바뀌었을 때 대처 가능하게 함
+    let vqd = match vqd_re.captures(&html).and_then(|cap| cap.get(1)) {
+        Some(m) => m.as_str().to_string(),
+        None => {
+            log::warn!("[DuckDuckGo Image Search] vqd 토큰 추출 실패. HTML 구조가 변경되었거나 차단되었을 수 있습니다.");
+            return None;
+        }
+    };
+
+    // Step 2: 이미지 JSON API 호출
+    let img_resp = client
+        .get("https://duckduckgo.com/i.js")
+        .query(&[
+            ("q", product_name),
+            ("o", "json"),
+            ("l", "us-en"),
+            ("vqd", vqd.as_str()),
+            ("f", ",,,"),
+            ("p", "1"),
+        ])
+        .send()
+        .await
+        .ok()?;
+
+    if !img_resp.status().is_success() {
+        log::error!("[DuckDuckGo Image Search] API error: {}", img_resp.status());
+        return None;
+    }
+
+    let json: serde_json::Value = match img_resp.json().await {
+        Ok(j) => j,
+        Err(e) => {
+            log::error!("[DuckDuckGo Image Search] JSON 파싱 에러: {}", e);
+            return None;
+        }
+    };
+
+    // Step 3: 패닉 방지를 위한 안전한 JSON 접근 (get 메서드 체이닝)
+    json.get("results")
+        .and_then(|results| results.as_array())
+        .and_then(|arr| arr.first()) // 배열이 비어있으면 None 반환
+        .and_then(|first_item| first_item.get("image"))
+        .and_then(|img| img.as_str())
+        .map(|s| s.to_string())
+}

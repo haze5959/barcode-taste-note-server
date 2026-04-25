@@ -156,6 +156,7 @@ fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, C
         // 제품 이미지 ID들 조회 (최대 3개)
         let image_ids: Vec<Uuid> = product_images::table
             .filter(product_images::product_id.eq(product.id))
+            .order(product_images::registered.asc())
             .select(product_images::id)
             .limit(3)
             .load::<Uuid>(conn)
@@ -211,6 +212,7 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
             product_image_id = product_images::table
                 .filter(product_images::note_id.is_null())
                 .filter(product_images::product_id.eq(note.product_id))
+                .order(product_images::registered.asc())
                 .select(product_images::id)
                 .first::<Uuid>(conn)
                 .ok();

@@ -90,9 +90,51 @@ pub struct FavoriteByUserIdQuery {
 /// Path: /products``
 pub async fn create_product(
     db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
     item: web::Json<CreateProductParams>,
 ) -> Result<HttpResponse, Error> {
-    let item_inner = item.into_inner();
+    let mut item_inner = item.into_inner();
+
+    let db_check = db.clone();
+    let name_check = item_inner.name.clone();
+    let barcode_check = item_inner.barcode_id.clone();
+
+    // 동일한 이름의 제품이 이미 있으면 바코드만 연결하고 바로 반환
+    if let Some(product) = web::block(move || db_check_and_attach_barcode(&mut db_check.get().unwrap(), &name_check, barcode_check.as_deref())).await?? {
+        let response = CommonResponse { result: true, data: product, error: None };
+        return Ok(HttpResponse::Ok().json(response));
+    }
+
+    // desc가 없거나 비어있는 경우 Gemini로 미리 채우기
+    if item_inner.desc.as_ref().map_or(true, |s: &String| s.trim().is_empty()) {
+        if let Some(info) = crate::utils::gemini::generate_product_info_with_gemini(&item_inner.name).await {
+            item_inner.desc = Some(info.description);
+        }
+    }
+
+    // image_id가 없는 경우 Google 이미지 검색으로 자동 채우기
+    if item_inner.image_id.is_none() {
+        if let Some(img_url) = crate::utils::scraper::search_duckduckgo_image_url(&item_inner.name).await {
+            let new_uuid = Uuid::new_v4();
+            if crate::utils::scraper::download_image(&r2, &img_url, new_uuid).await.is_ok() {
+                let new_image = crate::models::NewProductImage {
+                    id: new_uuid,
+                    product_id: None,
+                    note_id: None,
+                    user_id: None,
+                    registered: chrono::Utc::now(),
+                };
+                let db_clone_img = db.clone();
+                let _ = web::block(move || {
+                    let conn = &mut db_clone_img.get().unwrap();
+                    diesel::insert_into(crate::schema::product_images::table)
+                        .values(&new_image)
+                        .execute(conn)
+                }).await;
+                item_inner.image_id = Some(new_uuid);
+            }
+        }
+    }
 
     // 제품 이름을 이용해 임베딩(Vector) 값 비동기 추출
     let embedding = match crate::utils::openai::get_embedding(&item_inner.name).await {
@@ -159,13 +201,57 @@ pub async fn create_product_by_ai(
         }
     };
 
-    // 5. DB Query & Insertion
+    // 5. DuckDuckGo 이미지 검색으로 대표 이미지 교체
+    //    - 성공 시: 새 이미지를 R2에 업로드 & DB insert → 기존 이미지(item_inner.image_id) R2+DB 삭제
+    //    - 실패 시: 기존 item_inner.image_id 그대로 사용
+    let final_image_id = if let Some(img_url) = crate::utils::scraper::search_duckduckgo_image_url(&ai_result.name).await {
+        let new_uuid = Uuid::new_v4();
+        if crate::utils::scraper::download_image(&r2, &img_url, new_uuid).await.is_ok() {
+            let new_image = crate::models::NewProductImage {
+                id: new_uuid,
+                product_id: None,
+                note_id: None,
+                user_id: None,
+                registered: chrono::Utc::now(),
+            };
+            let db_clone_img = db.clone();
+            let insert_ok = web::block(move || {
+                let conn = &mut db_clone_img.get().unwrap();
+                diesel::insert_into(crate::schema::product_images::table)
+                    .values(&new_image)
+                    .execute(conn)
+            }).await.is_ok();
+
+            if insert_ok {
+                // 기존 이미지(Gemini 분석용으로 업로드한 이미지) R2+DB에서 제거
+                let old_image_id = item_inner.image_id;
+                let db_clone_del = db.clone();
+                let r2_clone_del = r2.clone();
+                let _ = web::block(move || {
+                    let rt = actix_rt::Runtime::new().unwrap();
+                    let _ = rt.block_on(r2_clone_del.move_to_deleted(&format!("images/{}", old_image_id)));
+                    let conn = &mut db_clone_del.get().unwrap();
+                    delete(crate::schema::product_images::table.find(old_image_id)).execute(conn)
+                }).await;
+
+                new_uuid
+            } else {
+                item_inner.image_id
+            }
+        } else {
+            item_inner.image_id
+        }
+    } else {
+        item_inner.image_id
+    };
+
+    // 6. DB Query & Insertion
     let create_params = CreateProductParams {
         name: ai_result.name,
         desc: Some(ai_result.description),
         type_,
         barcode_id: item_inner.barcode_id,
-        image_id: Some(item_inner.image_id),
+        image_id: Some(final_image_id),
     };
 
     let db_clone = db.clone();
@@ -390,42 +476,55 @@ pub async fn get_tasted_products_list(
 // MARK: Internal Methods
 // ============================================
 
+// 동일 이름 제품 존재 시 바코드 연결 후 반환, 없으면 None 반환
+fn db_check_and_attach_barcode(
+    conn: &mut diesel::PgConnection,
+    product_name: &str,
+    barcode_id: Option<&str>,
+) -> Result<Option<Product>, CommonResponseError> {
+    let existing_product = products::table
+        .select(crate::models::PRODUCT_COLUMNS)
+        .filter(diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) = LOWER(").bind::<diesel::sql_types::Text, _>(product_name).sql(")"))
+        .first::<Product>(conn)
+        .optional()
+        .map_err(handler_disel_error)?;
+
+    let product = match existing_product {
+        None => return Ok(None),
+        Some(p) => p,
+    };
+
+    // 기존 제품 존재 — 바코드가 있다면 중복 검사 후 연결
+    if let Some(barcode_str) = barcode_id {
+        let already_exists = barcodes::table
+            .filter(barcodes::barcode_id.eq(barcode_str))
+            .first::<Barcode>(conn)
+            .optional()
+            .map_err(handler_disel_error)?
+            .is_some();
+
+        if !already_exists {
+            let new_barcode = NewBarcode {
+                id: Uuid::new_v4(),
+                barcode_id: barcode_str,
+                product_id: product.id,
+            };
+            insert_into(barcodes::table)
+                .values(&new_barcode)
+                .execute(conn)
+                .map_err(handler_disel_error)?;
+        }
+    }
+
+    Ok(Some(product))
+}
+
 fn db_create_product(
     pool: web::Data<Pool>,
     item: CreateProductParams,
     embedding: Option<pgvector::Vector>,
 ) -> Result<Product, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
-
-    // 동일한 이름의 제품이 있는지 확인
-    let existing_product = products::table
-        .select(crate::models::PRODUCT_COLUMNS)
-        .filter(diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) = LOWER(").bind::<diesel::sql_types::Text, _>(&item.name).sql(")"))
-        .first::<Product>(conn)
-        .optional()
-        .map_err(handler_disel_error)?;
-
-    if let Some(product) = existing_product {
-        // 이미 동일한 이름의 제품이 있는 경우
-        if let Some(ref barcode_str) = item.barcode_id {
-            // barcode_id가 있다면 기존 제품에 새 바코드만 연결
-            let new_barcode = NewBarcode {
-                id: Uuid::new_v4(),
-                barcode_id: barcode_str,
-                product_id: product.id,
-            };
-
-            insert_into(barcodes::table)
-                .values(&new_barcode)
-                .execute(conn)
-                .map_err(handler_disel_error)?;
-
-            return Ok(product);
-        } else {
-            // barcode_id가 없다면 중복 에러 반환
-            return Err(CommonResponseError::DuplicatedError);
-        }
-    }
 
     let new_product_id = Uuid::new_v4();
     let new_product = NewProduct {
@@ -477,32 +576,8 @@ fn db_create_product_by_ai(
 ) -> Result<Product, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
-    let existing_product = products::table
-        .select(crate::models::PRODUCT_COLUMNS)
-        .filter(diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) = LOWER(").bind::<diesel::sql_types::Text, _>(&item.name).sql(")"))
-        .first::<Product>(conn)
-        .optional()
-        .map_err(handler_disel_error)?;
-
-    if let Some(product) = existing_product {
-        // 동일한 제품이 이미 존재 시 새로 만들지 않고 바코드만 연동
-        if let Some(ref barcode_str) = item.barcode_id {
-            // 바코드 ID가 이미 존재하는지 검사 (중복 시도 방지)
-            let existing_barcode = barcodes::table
-                .filter(barcodes::barcode_id.eq(barcode_str))
-                .first::<Barcode>(conn)
-                .optional()
-                .map_err(handler_disel_error)?;
-            
-            if existing_barcode.is_none() {
-                let new_barcode = NewBarcode {
-                    id: Uuid::new_v4(),
-                    barcode_id: barcode_str,
-                    product_id: product.id,
-                };
-                insert_into(barcodes::table).values(&new_barcode).execute(conn).map_err(handler_disel_error)?;
-            }
-        }
+    // 동일 이름 제품 존재 시 바코드 연결 후 반환
+    if let Some(product) = db_check_and_attach_barcode(conn, &item.name, item.barcode_id.as_deref())? {
         return Ok(product);
     }
 
@@ -847,6 +922,26 @@ async fn process_get_product_by_barcode(
                     image_id,
                     barcode_id: Some(barcode_str.clone()),
                 };
+
+                let db_clone_check = db.clone();
+                let name_check = create_params.name.clone();
+                let barcode_check = create_params.barcode_id.clone();
+
+                // 동일 이름 제품이 있으면 바코드만 연결하고 바로 조회
+                if let Ok(Some(_)) = web::block(move || db_check_and_attach_barcode(&mut db_clone_check.get().unwrap(), &name_check, barcode_check.as_deref())).await? {
+                    let db_clone_fetch = db.clone();
+                    let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, barcode_str, sub)).await?;
+                    match new_detail {
+                        Ok(detail) => {
+                            let response = CommonResponse { result: true, data: detail, error: None };
+                            return Ok(HttpResponse::Ok().json(response));
+                        }
+                        Err(e) => {
+                            let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
+                            return Ok(HttpResponse::Ok().json(response));
+                        }
+                    }
+                }
 
                 let db_clone_create = db.clone();
                 let created_product = web::block(move || {

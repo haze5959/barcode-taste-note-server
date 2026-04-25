@@ -459,6 +459,7 @@ fn db_get_note_by_id(
         product_image_id = product_images::table
             .filter(product_images::note_id.is_null())
             .filter(product_images::product_id.eq(note.product_id))
+            .order(product_images::registered.asc())
             .select(product_images::id)
             .first::<Uuid>(conn)
             .ok();
@@ -580,6 +581,7 @@ pub(crate) fn build_note_list_response(
             product_image_id = product_images::table
                 .filter(product_images::note_id.is_null())
                 .filter(product_images::product_id.eq(note.product_id))
+                .order(product_images::registered.asc())
                 .select(product_images::id)
                 .first::<Uuid>(conn)
                 .ok();
