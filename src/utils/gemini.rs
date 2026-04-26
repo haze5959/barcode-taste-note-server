@@ -71,7 +71,7 @@ pub async fn analyze_image_with_gemini(r2: &crate::utils::r2::R2Client, image_id
         3. Provides a professional English description of the product using your extensive knowledge base. Include the brand, standard ABV, specific production methods (e.g., first press malt, aging types), and key flavor markers. \
         STRICTLY UNDER 200 characters. USE factual, encyclopedia-style language. \
         Avoid empty fillers or speculative hedges. For well-known products, you MUST include standard market specifications. \
-        4. Identify the category as strictly one of: whisky, wine, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage. \
+        4. Identify the category as strictly one of: wine, whisky, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage. \
         Return strictly in JSON format matching this structure: {\"name\": \"...\", \"description\": \"...\", \"category\": \"...\"} \
         Unless Rule 1 applies, the `name`, `description`, and `category` fields are mandatory.";
 
@@ -154,7 +154,7 @@ pub async fn generate_product_info_with_gemini(product_name: &str) -> Option<Gem
         Include the official brand, standard ABV, specific production characteristics (e.g., ingredients, aging, filtration), and key flavor profile markers. \
         STRICTLY UNDER 200 characters. Use factual, encyclopedia-style language. \
         For well-known alcoholic beverages, you MUST include standard market specifications rather than generic phrases. \
-        Also identify the category as strictly one of: whisky, wine, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage. \
+        Also identify the category as strictly one of: wine, whisky, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage. \
         Return strictly in JSON format matching this structure: {{\"category\": \"...\", \"description\": \"...\"}}",
         product_name
     );

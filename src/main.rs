@@ -134,6 +134,7 @@ async fn main() -> std::io::Result<()> {
                             .route("/products/{product_id}", web::delete().to(handlers::admin_handlers::delete_admin_product))
                             .route("/image", web::post().to(handlers::admin_handlers::upload_admin_image))
                             .route("/image/url", web::post().to(handlers::admin_handlers::upload_admin_image_by_url))
+                            .route("/images/{id}", web::delete().to(handlers::admin_handlers::delete_admin_image))
                     )
             )
     })

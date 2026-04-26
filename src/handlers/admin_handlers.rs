@@ -754,3 +754,36 @@ fn db_get_admin_notes(
 
     build_note_list_response(conn, notes_list)
 }
+
+// ============================================
+// MARK: DELETE /admin/images/:id
+// ============================================
+pub async fn delete_admin_image(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let image_id = path.into_inner();
+
+    // R2에서 이미지 삭제
+    r2.delete_image(&format!("images/{}", image_id)).await?;
+
+    // DB에서 이미지 삭제
+    web::block(move || {
+        let conn = &mut db.get().unwrap();
+        diesel::delete(product_images::table.find(image_id))
+            .execute(conn)
+            .map_err(handler_disel_error)
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
