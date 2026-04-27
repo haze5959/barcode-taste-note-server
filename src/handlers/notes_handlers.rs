@@ -717,7 +717,10 @@ fn db_update_note(
         // 추가: note_id를 현재 노트로 설정
         for image_id in images_to_add {
             diesel::update(product_images::table.find(image_id))
-                .set(product_images::note_id.eq(note_id))
+                .set((
+                    product_images::note_id.eq(note_id),
+                    product_images::product_id.eq(note.product_id),
+                ))
                 .execute(conn)?;
         }
 
