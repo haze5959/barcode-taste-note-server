@@ -1,57 +1,58 @@
-# Barnote Server Context & Rules
+# BarNote Server Context & Rules
 
 ## 1. Project Overview
-시음노트 서비스(Barnote)의 백엔드 서버입니다.
-Rust와 Actix-web을 기반으로 구축되었으며, PostgreSQL을 데이터베이스로 사용합니다.
+This is the backend server for **BarNote** (a tasting note service).
+It is built with **Rust** and **Actix-web**, utilizing **PostgreSQL** as the primary database.
 
 ## 2. Tech Stack & Libraries
 | Component | Technology | Description |
 |-----------|------------|-------------|
-| **Language** | Rust 2024 | |
-| **Framework** | Actix-web 4 | Web Framework |
-| **Auth** | Auth0, JWT | `actix-web-httpauth`, `alcoholic_jwt` |
-| **Database** | PostgreSQL | |
-| **ORM** | Diesel 2.2 | `diesel`, `r2d2` |
-| **Serialization**| Serde | JSON handling |
-| **CDN** | Cloudflare R2 | Image Storage |
-| **Logging** | env_logger | |
+| **Language** | Rust 2024 | Core programming language |
+| **Framework** | Actix-web 4 | High-performance web framework (`actix-web`, `actix-rt`) |
+| **Auth** | Auth0, JWT | Handled via `actix-web-httpauth`, `alcoholic_jwt` |
+| **Database** | PostgreSQL | Relational DB, also uses `pgvector` for embeddings |
+| **ORM** | Diesel 2.2 | `diesel`, `r2d2` for connection pooling |
+| **Serialization**| Serde | JSON handling (`serde`, `serde_json`, `serde_derive`) |
+| **Storage/CDN**| Cloudflare R2 | Image storage via `aws-sdk-s3` |
+| **Logging** | env_logger | Application-level logging (`env_logger`, `log`) |
+| **AI Integration**| OpenAI & Gemini | Vector embeddings & AI features via `async-openai` and custom utils |
+| **Workspaces**| Multiple | `crawler`, `batch` exist as cargo workspace members |
 
 ## 3. Project Structure
-```
+```text
 .
+├── Cargo.toml          # Workspace & Dependencies config
 ├── src/
-│   ├── handlers/       # Request Handlers (Controllers)
-│   │   ├── users_handler.rs
-│   │   ├── products_handlers.rs
-│   │   ├── notes_handlers.rs
-│   │   └── ...
-│   ├── utils/          # Utilities
-│   │   ├── auth.rs     # Auth validators
-│   │   └── ...
-│   ├── models.rs       # Diesel Models & Structs
+│   ├── main.rs         # App Entry point, Server config & Route definitions
+│   ├── lib.rs          # Exposes modules for integration tests or workspace members
+│   ├── handlers/       # Request Handlers (Controllers) (e.g., users, products, notes, admin)
+│   ├── utils/          # Utilities (auth, db, r2, gemini, openai, fcm, scraper, etc.)
+│   ├── models.rs       # Diesel Models, DB Structs, Request/Response Structs
 │   ├── schema.rs       # Diesel Schema (Auto-generated, **DO NOT EDIT**)
-│   ├── errors.rs       # Custom Error Types
-│   ├── main.rs         # App Entry point & Route definitions
-│   └── auth.rs         # JWT Authentication Logic
-├── tests/              # Integration tests
+│   ├── errors.rs       # Custom Error Enum (`CommonResponseError`) & HTTP mappers
+│   ├── auth.rs         # JWT Authentication & Validation Logic
+│   └── constants.rs    # Application wide constants
+├── migrations/         # Diesel migration files (SQL up/down)
+├── crawler/            # Workspace member for web crawling scripts
+├── batch/              # Workspace member for batch jobs
 └── RULES.md            # This file
 ```
 
 ## 4. Key Patterns & Conventions
 
 ### 4.1. Authentication
-- **Mechanism**: Bearer Token (JWT) via Auth0.
+- **Mechanism**: Bearer Token (JWT) provided via Auth0.
 - **Header**: `Authorization: Bearer <token>`
-- **Implementation**: `HttpAuthentication` middleware 사용.
+- **Implementation**: Utilizes `HttpAuthentication::bearer(auth::validator)` middleware in Actix-web to protect private routes.
 
 ### 4.2. API Response Format
-모든 API 응답은 다음 공통 포맷을 엄격히 준수해야 합니다.
+All API responses **must** strictly adhere to the following common format (using `CommonResponse<T>` from `src/models.rs`):
 
 **Success:**
 ```json
 {
     "result": true,
-    "data": { ... } // Generic Data Model
+    "data": { ... } // Generic Data Model (or null/None)
 }
 ```
 
@@ -59,23 +60,42 @@ Rust와 Actix-web을 기반으로 구축되었으며, PostgreSQL을 데이터베
 ```json
 {
     "result": false,
-    "error": 100 // Error Code (See src/errors.rs)
+    "error": 100 // Error Code Enum (See src/errors.rs)
 }
 ```
 
-### 4.3. Database (Diesel ORM)
-- `src/schema.rs`는 Diesel CLI에 의해 자동 관리되므로 **수동 수정 금지**.
-- DB 변경 시 마이그레이션 파일 생성 및 적용 필요.
+### 4.3. Error Handling
+- Use the custom `CommonResponseError` enum defined in `src/errors.rs`.
+- Diesel database errors should be cleanly mapped to `CommonResponseError` (e.g., `NotFound` to `RecordNotFound`, etc).
+- Handlers should return `Result<HttpResponse, CommonResponseError>`.
+- Log the errors accurately inside mapper functions before responding to the user.
+
+### 4.4. Database (Diesel ORM)
+- The file `src/schema.rs` is **automatically generated and managed** by the Diesel CLI. **NEVER manually edit this file.**
+- If a database schema change is needed:
+  1. Create a new migration file using diesel CLI.
+  2. Apply the migration using Diesel CLI.
+  3. Update `src/models.rs` to reflect the new table or columns.
+- The project uses `pgvector` for AI similarity search. Models map the vector embedding to `Option<Vector>`.
 
 ## 5. Development Guidelines (Rules)
 
-### 5.1. Coding Standards
-- **Language**: 주석, 커밋 메시지, Implementation Plan 등 모든 설명 텍스트는 **한글(Korean)**로 작성.
+### 5.1. AI Agent Communication & Commit Standards
+- **Language Policy**: While this `RULES.md` is written in English to save tokens during AI sessions, **all source code comments, git commit messages, implementation plans, and descriptions MUST be written in Korean (한국어).**
+- Always thoroughly read the project's logic and understand the flow before suggesting changes. 
+- Explain your reasoning clearly before making significant architectural changes.
 
-### 5.2. Constraints
-- **Dependencies**: 새로운 External Library 추가 **절대 금지** (유저 명시적 승인 시 예외).
-- **File Restrictions**: `src/schema.rs` 수정 금지.
+### 5.2. Constraints & Security
+- **Dependencies**: Adding new external libraries in `Cargo.toml` is **strictly forbidden** unless explicitly approved by the user.
+- **File Restrictions**: As previously stated, `src/schema.rs` is read-only.
+- **State Management**: App State (like DB pools, R2 clients) is passed to routes via Actix `web::Data`. Extract it in handler functions cleanly.
 
-### 5.3. Reference
-- Handler 예시: `src/handlers/users_handler.rs`
-- Test 예시: `tests/user_test.rs`
+### 5.3. Typical Development Workflow
+1. **Route Definition**: Add the new route mapping in `src/main.rs`. Ensure you put it in the correct scope (public vs authenticated API scope vs admin).
+2. **Models**: Add required Request/Response and Database structs in `src/models.rs`.
+3. **Handler**: Implement the actual logic in `src/handlers/<feature>_handlers.rs`.
+4. **Errors**: If a new specific error is needed, add it to `src/errors.rs`.
+
+### 5.4. References
+- **Handler Example**: Look at `src/handlers/users_handler.rs` or `src/handlers/notes_handlers.rs`.
+- **Error Example**: Check `src/errors.rs` for `ResponseError` implementation.

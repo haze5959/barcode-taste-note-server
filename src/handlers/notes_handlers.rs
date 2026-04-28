@@ -60,10 +60,9 @@ pub struct NoteCalendarQuery {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct NoteRatingQuery {
+pub struct NoteNotRatedQuery {
     pub page: Option<i64>,
     pub per: Option<i64>,
-    pub rating: i16,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,6 +71,7 @@ pub struct ApiNoteListQuery {
     pub per: Option<i64>,
     pub product_id: Option<Uuid>,
     pub order_by: Option<String>,
+    pub include_unrated: Option<bool>,
 }
 
 // ============================================
@@ -245,16 +245,16 @@ pub async fn get_notes_calendar(
     Ok(HttpResponse::Ok().json(response))
 }
 
-/// Path: /api/notes/rating (Authenticated)
-pub async fn get_notes_by_rating(
+/// Path: /api/notes/not_rated (Authenticated)
+pub async fn get_notes_not_rated(
     req: HttpRequest,
     db: web::Data<Pool>,
     r2: web::Data<R2Client>,
-    query: web::Query<NoteRatingQuery>,
+    query: web::Query<NoteNotRatedQuery>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let notes_list =
-        web::block(move || db_get_notes_by_rating(db, r2, auth_info, query.into_inner()))
+        web::block(move || db_get_notes_not_rated(db, r2, auth_info, query.into_inner()))
             .await??;
     let response = CommonResponse {
         result: true,
@@ -957,6 +957,11 @@ fn db_get_api_notes_list(
         notes_query = notes_query.filter(notes::product_id.eq(product_id));
     }
 
+    let include_unrated = query.include_unrated.unwrap_or(false);
+    if !include_unrated {
+        notes_query = notes_query.filter(notes::rating.ne(0));
+    }
+
     match query.order_by.as_deref() {
         Some("rating") => {
             notes_query = notes_query.order(notes::rating.desc());
@@ -975,11 +980,11 @@ fn db_get_api_notes_list(
     build_note_list_response(conn, notes_list)
 }
 
-fn db_get_notes_by_rating(
+fn db_get_notes_not_rated(
     pool: web::Data<Pool>,
     r2: web::Data<R2Client>,
     auth_info: AuthInfo,
-    query: NoteRatingQuery,
+    query: NoteNotRatedQuery,
 ) -> Result<Vec<NoteListResponse>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
@@ -997,7 +1002,7 @@ fn db_get_notes_by_rating(
     let notes_list: Vec<NoteSimple> = notes::table
         .select(NOTE_SIMPLE_COLUMNS)
         .filter(notes::user_id.eq(user_id))
-        .filter(notes::rating.eq(query.rating))
+        .filter(notes::rating.eq(0))
         .order(notes::registered.desc())
         .offset(offset)
         .limit(per)
