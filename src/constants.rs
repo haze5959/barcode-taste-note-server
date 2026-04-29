@@ -1,0 +1,1 @@
+pub const HOME_INFO_LENGTH: i64 = 3;
