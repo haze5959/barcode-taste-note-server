@@ -1,0 +1,49 @@
+[package]
+name = "barcode_taste_note"
+version = "0.1.0"
+authors = ["OQ <haze5959@naver.com>"]
+edition = "2024"
+
+[dependencies]
+actix-web = { version = "4", features = ["openssl"] }
+openssl = "0.10"
+actix-web-httpauth = "0.8.2"
+actix-multipart = "0.6"
+actix-files = "0.6"
+futures-util = "0.3"
+derive_more = "0.99.2"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+diesel = { version = "2.2.8", features = ["postgres", "uuid", "r2d2", "serde_json", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenv = "0.15.0"
+futures = "0.3.1"
+serde = "1.0"
+serde_derive = "1.0"
+actix-service = "1.0.1"
+alcoholic_jwt = "1.0.0"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
+actix-rt = "2.10.0"
+env_logger = "0.11.7"
+log = "0.4.26"
+serde_json = "1.0.140"
+pgvector = { version = "0.3.3", features = ["diesel", "serde"] }
+async-openai = "0.26.0"
+tokio = { version = "1.49.0", features = ["fs"] }
+regex = "1.12.3"
+lazy_static = "1.5.0"
+base64 = "0.22.1"
+image = "0.25.9"
+actix-cors = "0.7.1"
+itertools = "0.14.0"
+aws-config = { version = "1.1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1.17"
+gcp_auth = "0.12.6"
+rustls = { version = "0.23.37", features = ["ring"] }
+
+[workspace]
+members = [
+    "crawler",
+    "crawler/emart",
+    "crawler/artdrink",
+    "batch"
+]
