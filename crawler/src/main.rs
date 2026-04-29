@@ -95,8 +95,8 @@ fn log_failed_page(page: i64) {
 fn parse_category(tags: &Option<Vec<String>>) -> i16 {
     if let Some(tags) = tags {
         let tags_str = tags.join(" ").to_lowercase();
-        if tags_str.contains("whisky") || tags_str.contains("whiskies") { return 0; }
-        if tags_str.contains("wine") || tags_str.contains("wines") { return 1; }
+        if tags_str.contains("wine") || tags_str.contains("wines") { return 0; }
+        if tags_str.contains("whisky") || tags_str.contains("whiskies") { return 1; }
         if tags_str.contains("beer") || tags_str.contains("beers") { return 2; }
         if tags_str.contains("soju") || tags_str.contains("sake") { return 3; }
         if tags_str.contains("liqueur") || tags_str.contains("liqueurs") || tags_str.contains("spirit") || tags_str.contains("spirits") { return 4; }
