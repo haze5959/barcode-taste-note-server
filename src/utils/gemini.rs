@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::env;
-use tokio::fs;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use tokio::io::AsyncWriteExt;
 use log::error;
 
 #[derive(Serialize)]
@@ -124,18 +122,12 @@ pub async fn analyze_image_with_gemini(r2: &crate::utils::r2::R2Client, image_id
         Ok((analysis, cleaned_text))
     }.await;
 
-    let (analysis_res, log_text) = match result {
-        Ok((analysis, text)) => (Ok(analysis), text),
-        Err(e) => (Err(e.clone()), format!("ERROR: {}", e)),
+    let (analysis_res, log_text, is_success) = match result {
+        Ok((analysis, text)) => (Ok(analysis), text, true),
+        Err(e) => (Err(e.clone()), format!("ERROR: {}", e), false),
     };
 
-    // Create log entry, ensuring text is flat without newlines
-    let time_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let flat_log_text = log_text.replace("\n", " ").replace("\r", "");
-    let log_line = format!("{} : {} : {}\n", time_str, image_id_str, flat_log_text);
-    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open("gemini_requests.log").await {
-        let _ = file.write_all(log_line.as_bytes()).await;
-    }
+    crate::utils::logger::log_gemini_request(is_success, image_id_str, &log_text).await;
 
     analysis_res
 }
