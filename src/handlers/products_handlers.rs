@@ -87,13 +87,22 @@ pub struct FavoriteByUserIdQuery {
 // MARK: Handler for POST
 // ============================================
 
-/// Path: /products``
+/// Path: /products
 pub async fn create_product(
     db: web::Data<Pool>,
     r2: web::Data<R2Client>,
     item: web::Json<CreateProductParams>,
 ) -> Result<HttpResponse, Error> {
     let mut item_inner = item.into_inner();
+
+    if crate::utils::block_list::PRODUCT_BLOCK_LIST.contains(&item_inner.name.to_lowercase().as_str()) {
+        let resp: CommonResponse<Option<()>> = CommonResponse {
+            result: false,
+            data: None,
+            error: Some(CommonResponseError::BlockedProduct as u8),
+        };
+        return Ok(HttpResponse::Ok().json(resp));
+    }
 
     let db_check = db.clone();
     let name_check = item_inner.name.clone();
@@ -879,6 +888,7 @@ async fn process_get_product_by_barcode(
 
     match product_detail_result {
         Ok(detail) => {
+            crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&detail.product.name)).await;
             let response = CommonResponse {
                 result: true,
                 data: detail,
@@ -888,6 +898,7 @@ async fn process_get_product_by_barcode(
         }
         Err(crate::errors::CommonResponseError::RecordNotFound) => {
             if let Some(scraped) = crate::utils::scraper::scrape_barcode_lookup(&barcode_str).await {
+                crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&scraped.name)).await;
                 // 1. Download image if exists
                 let mut image_id = None;
                 if let Some(img_url) = scraped.image_url {
@@ -970,6 +981,7 @@ async fn process_get_product_by_barcode(
                     }
                 }
             } else {
+                crate::utils::logger::log_barcode_request(false, &barcode_str, None).await;
                 let response: CommonResponse<Option<()>> = CommonResponse {
                     result: false,
                     data: None,

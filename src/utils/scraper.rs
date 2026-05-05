@@ -11,8 +11,8 @@ pub struct ScrapedProduct {
 
 pub fn parse_category(tags_str: &str) -> i16 {
     let lower = tags_str.to_lowercase();
-    if lower.contains("whisky") || lower.contains("whiskies") || lower.contains("whiskey") { return 0; }
-    if lower.contains("wine") || lower.contains("wines") { return 1; }
+    if lower.contains("wine") || lower.contains("wines") { return 0; }
+    if lower.contains("whisky") || lower.contains("whiskies") || lower.contains("whiskey") { return 1; }
     if lower.contains("beer") || lower.contains("beers") { return 2; }
     if lower.contains("soju") || lower.contains("sake") { return 3; }
     if lower.contains("liqueur") || lower.contains("liqueurs") || lower.contains("spirit") || lower.contains("spirits") { return 4; }

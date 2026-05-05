@@ -18,6 +18,7 @@ pub enum CommonResponseError {
     InvalidParameter = 106,
     ExceedMaxCount = 107,
     FailedToAnalyzeImage = 108,
+    BlockedProduct = 109,
     Unknown = 255
 }
 

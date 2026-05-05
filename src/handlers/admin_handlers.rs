@@ -78,6 +78,10 @@ pub struct AdminDashboardResponse {
     pub web_active_users_30d: Option<i64>,
     pub ios_active_users_30d: Option<i64>,
     pub android_active_users_30d: Option<i64>,
+    pub gemini_request_success_count: i64,
+    pub gemini_request_failure_count: i64,
+    pub barcode_request_success_count: i64,
+    pub barcode_request_failure_count: i64,
 }
 
 fn validate_admin(req: &HttpRequest) -> Result<(), CommonResponseError> {
@@ -188,10 +192,22 @@ pub async fn get_dashboard(
 
     let (db_res, web_count, ios_count, android_count) = tokio::join!(dashboard_data_future, web_future, ios_future, android_future);
     
+    let yesterday_str = (chrono::Local::now() - chrono::Duration::days(1)).format("%Y%m%d").to_string();
+    let logs_dir = format!("logs/{}", yesterday_str);
+    
+    let gemini_request_success_count = crate::utils::logger::count_lines_in_file(&format!("{}/gemini_requests_success.log", logs_dir)).await;
+    let gemini_request_failure_count = crate::utils::logger::count_lines_in_file(&format!("{}/gemini_requests_failure.log", logs_dir)).await;
+    let barcode_request_success_count = crate::utils::logger::count_lines_in_file(&format!("{}/barcode_requests_success.log", logs_dir)).await;
+    let barcode_request_failure_count = crate::utils::logger::count_lines_in_file(&format!("{}/barcode_requests_failure.log", logs_dir)).await;
+
     let mut dashboard_data = db_res??;
     dashboard_data.web_active_users_30d = web_count;
     dashboard_data.ios_active_users_30d = ios_count;
     dashboard_data.android_active_users_30d = android_count;
+    dashboard_data.gemini_request_success_count = gemini_request_success_count;
+    dashboard_data.gemini_request_failure_count = gemini_request_failure_count;
+    dashboard_data.barcode_request_success_count = barcode_request_success_count;
+    dashboard_data.barcode_request_failure_count = barcode_request_failure_count;
 
     let response = CommonResponse {
         result: true,
@@ -258,6 +274,10 @@ fn db_get_dashboard(pool: web::Data<Pool>) -> Result<AdminDashboardResponse, Com
         web_active_users_30d: None,
         ios_active_users_30d: None,
         android_active_users_30d: None,
+        gemini_request_success_count: 0,
+        gemini_request_failure_count: 0,
+        barcode_request_success_count: 0,
+        barcode_request_failure_count: 0,
     })
 }
 

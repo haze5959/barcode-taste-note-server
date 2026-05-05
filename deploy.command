@@ -69,8 +69,8 @@ mkdir -p "$LOGS_DIR"
 echo "🟢 Starting the new Production server..."
 # 포트 해제 여유를 위해 잠시 더 대기
 sleep 1
-# rotatelogs를 사용하여 매일 자정 기준으로 날짜별 로그 파일 자동 분리 (86400초)
-nohup sh -c "$DEPLOY_DIR/barnote_server 2>&1 | /usr/sbin/rotatelogs -l '$LOGS_DIR/server_%Y%m%d.log' 86400" > /dev/null 2>&1 &
+# perl 스크립트를 사용하여 매일 자정 기준으로 날짜별 폴더 생성 및 로그 분리
+nohup sh -c "$DEPLOY_DIR/barnote_server 2>&1 | perl $PROJECT_ROOT/logger.pl '$LOGS_DIR'" > /dev/null 2>&1 &
 SERVER_PID=$!
 
 # 7. 실행 확인 (2초 뒤에 확인)

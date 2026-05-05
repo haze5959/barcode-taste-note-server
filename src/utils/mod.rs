@@ -10,3 +10,4 @@ pub mod gemini;
 pub mod db;
 pub mod r2;
 pub mod nickname;
+pub mod block_list;

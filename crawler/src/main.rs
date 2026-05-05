@@ -19,6 +19,9 @@ use models::OpenFoodFactsResponse;
 use db::{establish_connection, barcode_exists, product_exists_by_name, insert_product, insert_barcode, insert_product_image, NewProduct, NewBarcode, NewProductImage};
 use r2::R2Client;
 
+include!("../../src/utils/block_list.rs");
+
+
 fn clean_product_name(name: &str) -> String {
     let mut cleaned = name.replace("&quot;", "\"").replace("&amp;", "&");
     
@@ -220,6 +223,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(n) if !n.is_empty() => {
                     let cleaned = clean_product_name(&n);
                     if cleaned.is_empty() {
+                        continue;
+                    }
+                    if PRODUCT_BLOCK_LIST.contains(&cleaned.to_lowercase().as_str()) {
+                        println!("Skipping blocked product: {}", cleaned);
                         continue;
                     }
                     cleaned

@@ -369,6 +369,7 @@ fn get_all_user_infos(pool: web::Data<Pool>) -> Result<Vec<UserDetailResponse>, 
     for user in items {
         let note_count: i64 = notes::table
             .filter(notes::user_id.eq(user.id))
+            .filter(notes::rating.ne(0))
             .select(count(notes::id))
             .first(conn)
             .map_err(handler_disel_error)?;
@@ -433,6 +434,7 @@ fn db_search_users(
     for user in items {
         let note_count: i64 = notes::table
             .filter(notes::user_id.eq(user.id))
+            .filter(notes::rating.ne(0))
             .select(count(notes::id))
             .first(conn)
             .map_err(handler_disel_error)?;
@@ -486,6 +488,7 @@ fn get_user_info_by_sub(
 
     let note_count: i64 = notes::table
         .filter(notes::user_id.eq(user.id))
+        .filter(notes::rating.ne(0))
         .select(count(notes::id))
         .first(conn)
         .map_err(handler_disel_error)?;
@@ -543,6 +546,7 @@ fn db_get_user_info_by_id(pool: web::Data<Pool>, user_id: Uuid) -> Result<UserDe
 
     let note_count: i64 = notes::table
         .filter(notes::user_id.eq(user.id))
+        .filter(notes::rating.ne(0))
         .select(count(notes::id))
         .first(conn)
         .map_err(handler_disel_error)?;
@@ -585,6 +589,7 @@ fn db_get_user_info_by_id_with_auth(
 
     let note_count: i64 = notes::table
         .filter(notes::user_id.eq(user.id))
+        .filter(notes::rating.ne(0))
         .select(count(notes::id))
         .first(conn)
         .map_err(handler_disel_error)?;
@@ -891,6 +896,7 @@ fn db_build_user_detail_items(
 
         let note_count: i64 = notes::table
             .filter(notes::user_id.eq(uid))
+            .filter(notes::rating.ne(0))
             .select(count(notes::id))
             .first(conn)
             .map_err(handler_disel_error)?;
