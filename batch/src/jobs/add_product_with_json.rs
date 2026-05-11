@@ -214,11 +214,11 @@ fn clean_product_name(name: &str) -> String {
 /// type 문자열로 카테고리 int 반환
 fn parse_category(type_str: &str) -> i16 {
     let lower = type_str.to_lowercase();
-    if lower.contains("wine") || lower.contains("wines") { return 0; }
-    if lower.contains("whisky") || lower.contains("whiskey") || lower.contains("whiskies") { return 1; }
-    if lower.contains("beer") || lower.contains("beers") { return 2; }
+    if lower.contains("wine") { return 0; }
+    if lower.contains("whisky") || lower.contains("whiskies") { return 1; }
+    if lower.contains("beer") { return 2; }
     if lower.contains("soju") || lower.contains("sake") { return 3; }
-    if lower.contains("liqueur") || lower.contains("spirit") { return 4; }
+    if lower.contains("liqueur") || lower.contains("liquor") || lower.contains("spirit") { return 4; }
     if lower.contains("cocktail") { return 5; }
     if lower.contains("coffee") { return 6; }
     if lower.contains("beverage") { return 7; }

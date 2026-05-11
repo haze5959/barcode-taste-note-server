@@ -98,14 +98,14 @@ fn log_failed_page(page: i64) {
 fn parse_category(tags: &Option<Vec<String>>) -> i16 {
     if let Some(tags) = tags {
         let tags_str = tags.join(" ").to_lowercase();
-        if tags_str.contains("wine") || tags_str.contains("wines") { return 0; }
+        if tags_str.contains("wine") { return 0; }
         if tags_str.contains("whisky") || tags_str.contains("whiskies") { return 1; }
-        if tags_str.contains("beer") || tags_str.contains("beers") { return 2; }
+        if tags_str.contains("beer") { return 2; }
         if tags_str.contains("soju") || tags_str.contains("sake") { return 3; }
-        if tags_str.contains("liqueur") || tags_str.contains("liqueurs") || tags_str.contains("spirit") || tags_str.contains("spirits") { return 4; }
-        if tags_str.contains("cocktail") || tags_str.contains("cocktails") { return 5; }
-        if tags_str.contains("coffee") || tags_str.contains("coffees") { return 6; }
-        if tags_str.contains("beverage") || tags_str.contains("beverages") { return 7; }
+        if tags_str.contains("liqueur") || tags_str.contains("liquor") || tags_str.contains("spirit") { return 4; }
+        if tags_str.contains("cocktail") { return 5; }
+        if tags_str.contains("coffee") { return 6; }
+        if tags_str.contains("beverage") { return 7; }
     }
     8
 }
@@ -219,7 +219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Reset count when we find a new barcode
             consecutive_exists_count = 0;
             
-            let name = match off_prod.product_name {
+            let mut name = match off_prod.product_name {
                 Some(n) if !n.is_empty() => {
                     let cleaned = clean_product_name(&n);
                     if cleaned.is_empty() {
@@ -236,6 +236,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             
             let type_ = parse_category(&off_prod.categories_tags);
             let desc = build_desc(&off_prod.brands);
+
+            // 와인일 경우 상품명 앞에 브랜드를 붙여준다. 
+            if type_ == 0 {
+                if let Some(ref b) = off_prod.brands {
+                    if !b.is_empty() {
+                        name = format!("{} {}", b, name);
+                    }
+                }
+            }
             
             let product_id = if let Some(existing_pid) = product_exists_by_name(&mut conn, &name) {
                 existing_pid
