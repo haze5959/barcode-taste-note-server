@@ -17,18 +17,17 @@ struct CollectionConfig {
 const COLLECTIONS: &[CollectionConfig] = &[
     // 완료
     // CollectionConfig { path: "tequila", type_: "spirit" },
-    CollectionConfig { path: "vodka", type_: "spirit" },
+    // CollectionConfig { path: "vodka", type_: "spirit" },
+    // CollectionConfig { path: "rum", type_: "spirit" },
+
+    CollectionConfig { path: "whiskey", type_: "whisky" },
+    CollectionConfig { path: "gins", type_: "spirit" },
+    CollectionConfig { path: "brandy-cognac", type_: "whisky" },
+    CollectionConfig { path: "beers-ciders", type_: "beer" },
 
     // 대기
-    // CollectionConfig { path: "whisky", type_: "whisky" },
     // CollectionConfig { path: "red-wine", type_: "wine" },
     // CollectionConfig { path: "white-wine", type_: "wine" },
-    // CollectionConfig { path: "beer", type_: "beer" },
-    // CollectionConfig { path: "gin", type_: "spirit" },
-    // CollectionConfig { path: "rum", type_: "spirit" },
-    // CollectionConfig { path: "liqueur", type_: "spirit" },
-    // CollectionConfig { path: "cognac-brandy", type_: "spirit" },
-    // CollectionConfig { path: "coffee", type_: "coffee" },
 ];
 
 // ============================================================
@@ -102,43 +101,23 @@ struct OutputProduct {
     #[serde(rename = "type")]
     type_: String,
     image_url: Option<String>,
+    details: Option<serde_json::Value>,
 }
 
 // ============================================================
 // Gemini 텍스트 호출 (productName → product_name + desc)
 // ============================================================
 
-const GEMINI_PROMPT_TEMPLATE: &str = r#"Analyze the provided product name and identify the alcoholic beverage or F&B product.
-Follow these rules strictly to generate the response:
+const GEMINI_PROMPT_TEMPLATE: &str = r#"Analyze F&B product name. If NOT F&B, return: {"error":"Not an F&B product"}.
+Name: Core English name ONLY. EXCLUDE promo/limited/seasonal/capacity/containers(Can,Bottle,Box,etc)/category suffixes(Whisky,Wine,Beer,etc). No hyphens. Title Case. KEEP aging/vintage as "X Years Old" (e.g., 7YO/7yo/7 year old → "7 Years Old"). KEEP brand prefix if name alone is just a flavor/color/descriptor (e.g., "Cherry Liqueur" → "Quaglia Cherry", "Pistachio Cream" → "Cellini Crema Di Pistacchio").
+Desc: Professional factual English desc (<200 chars). No repeating name. Include production methods, flavor markers, market specs.
+Return JSON: {"product_name":"...","desc":"...","details":{"style":<int>,"manufacturer":"<str>","country":"<2-letter_iso>","alcohol":<float>,"grape":<int>,"ibu":<int>}}
+Rules for 'details': 'grape' ONLY if wine. 'ibu' ONLY if beer. Use null for any field you are not confident about.
+STYLE: Wine(0:red,1:white,2:rose,3:sparkling,4:dessert,5:fortified,6:natural),Whisky(100:singleMalt,101:blended,102:singleGrain,103:bourbon,104:rye,105:tennessee,106:irish,107:japanese,108:canadian,109:other),Beer(200:lager,201:pilsner,202:paleAle,203:ipa,204:hazyIpa,205:stout,206:porter,207:wheat,208:sour,209:belgianAle,210:amber),Asian(300:soju,301:fruitSoju,302:junmai,303:junmaiGinjo,304:junmaiDaiginjo,305:ginjo,306:daiginjo,307:honjozo,308:nigori,309:cheongju,310:yakju,311:makgeolli),Spirits(400:vodka,401:gin,402:lightRum,403:darkRum,404:spicedRum,405:tequila,406:mezcal,407:brandy,408:cognac,409:armagnac,410:absinthe,411:baijiu,412:liqueur),Cocktail(500:classic,501:craft,502:tiki,503:sour,504:highball,505:frozen,506:mocktail),Coffee(600:espresso,601:americano,602:latte,603:cappuccino,604:macchiato,605:flatWhite,606:mocha,607:drip,608:pourOver,609:coldBrew,610:singleOrigin),Other(700:other)
+GRAPE(Wine ONLY): Red(0:cabSauv,1:merlot,2:pinotNoir,3:syrah,4:malbec,5:sangiovese,6:tempranillo,7:nebbiolo,8:grenache,9:zinfandel,10:cabFranc,11:carmenere,12:gamay,13:montepulciano,14:petitVerdot),White(100:chardonnay,101:sauvBlanc,102:riesling,103:pinotGrigio,104:gewurztraminer,105:cheninBlanc,106:viognier,107:semillon,108:moscato,109:albarino,110:pinotBlanc),Other(200:redBlend,201:whiteBlend,299:other)
+Product name: "{}""#;
 
-1. VALIDATION: If the item is NOT a food, beverage, or alcoholic product, return strictly: {"error": "Not an F&B product"}.
-
-2. PRODUCT NAME:
-   - Identify the core English product name.
-   - EXCLUDE promotional subtitles, limited edition markers, seasonal artwork names, or capacity (ml/L).
-   - EXCLUDE any packaging or container descriptors such as Can, Bottle, Draft, Draught, Pack, Q Pack, Keg, Box, Pouch, Cup, PET, or similar terms.
-   - REMOVE special characters/symbols (e.g., hyphens).
-   - EXCLUDE category names from the end of the product name, such as Whiskey, Whisky, Wine, Sake, Soju, Beer, etc.
-   - Use Title Case.
-   - Examples: 'Jack Daniel's Fire Whiskey 0.7L (5099873006504)' → 'Jack Daniel's Fire', 'Jim Beam Whiskey' → 'Jim Beam'.
-
-3. DESCRIPTION:
-   - Provide a professional English description WITHOUT repeating or starting with the product name.
-   - Include brand, standard ABV, production methods, and key flavor markers.
-   - MANDATORY: Keep it factual, encyclopedia-style, and STRICTLY UNDER 200 characters.
-
-4. OUTPUT FORMAT:
-   - Return strictly in JSON format with the following keys:
-     {
-       "product_name": "Core Product Name",
-       "desc": "Professional factual description under 200 characters"
-     }
-
-DO NOT include any conversational text, markdown blocks (unless requested), or extra fields outside of this JSON structure.
-
-Product name to analyze: "{}""#;
-
-async fn call_gemini(client: &reqwest::Client, api_key: &str, product_name: &str) -> Result<(String, String), String> {
+async fn call_gemini(client: &reqwest::Client, api_key: &str, product_name: &str) -> Result<(String, String, Option<serde_json::Value>), String> {
     let prompt = GEMINI_PROMPT_TEMPLATE.replace("{}", product_name);
 
     let request_body = GeminiRequest {
@@ -203,8 +182,9 @@ async fn call_gemini(client: &reqwest::Client, api_key: &str, product_name: &str
         .as_str()
         .ok_or_else(|| "Missing desc field".to_string())?
         .to_string();
+    let details = parsed.get("details").cloned();
 
-    Ok((name, desc))
+    Ok((name, desc, details))
 }
 
 // ============================================================
@@ -386,7 +366,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Gemini 호출
                 match call_gemini(&client, &api_key, raw_name).await {
-                    Ok((product_name, desc)) => {
+                    Ok((product_name, desc, details)) => {
                         println!("  ✓ {} → {}", raw_name, product_name);
                         all_results.push(OutputProduct {
                             barcode,
@@ -394,6 +374,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             desc,
                             type_,
                             image_url,
+                            details,
                         });
                     }
                     Err(e) => {

@@ -50,7 +50,8 @@ pub struct CandidatePart {
 pub struct GeminiProductAnalysis {
     pub name: String,
     pub description: String,
-    pub category: String
+    pub category: String,
+    pub details: Option<serde_json::Value>,
 }
 
 pub async fn analyze_image_with_gemini(r2: &crate::utils::r2::R2Client, image_id_str: &str) -> Result<GeminiProductAnalysis, String> {
@@ -62,16 +63,14 @@ pub async fn analyze_image_with_gemini(r2: &crate::utils::r2::R2Client, image_id
         let image_bytes = r2.get_image(&key).await.map_err(|e| format!("Failed to read image from R2 {}: {:?}", key, e))?;
         let base64_image = STANDARD.encode(image_bytes);
 
-        let prompt = "Analyze the provided image and identify the alcoholic beverage or F&B product. \
-        IMPORTANT RULES: \
-        1. If the item in the image is clearly NOT a food, beverage, or alcoholic product, you MUST stop and return strictly this JSON: {\"error\": \"Not an F&B product\"}. \
-        2. For the `name`, determine the core English product name ONLY. You MUST EXCLUDE any promotional subtitles, limited edition markers, seasonal artwork edition names, or capacity variants. DO NOT include any special characters or symbols such as hyphens in the name (e.g., if it is 'Suntory Royal Blended Whisky Sakura Blossom Limited Edition', return strictly 'Suntory Royal Blended Whisky'). Apply Title Case to the name (capitalize the first letter of each word). \
-        3. Provides a professional English description of the product using your extensive knowledge base. Include the brand, standard ABV, specific production methods (e.g., first press malt, aging types), and key flavor markers. \
-        STRICTLY UNDER 200 characters. USE factual, encyclopedia-style language. \
-        Avoid empty fillers or speculative hedges. For well-known products, you MUST include standard market specifications. \
-        4. Identify the category as strictly one of: wine, whisky, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage. \
-        Return strictly in JSON format matching this structure: {\"name\": \"...\", \"description\": \"...\", \"category\": \"...\"} \
-        Unless Rule 1 applies, the `name`, `description`, and `category` fields are mandatory.";
+        let prompt = "Analyze image for F&B/alcohol. If NOT F&B, return: {\"error\":\"Not an F&B product\"}.
+Name: Core English name ONLY. No promo/limited/seasonal/capacity info. No hyphens. Title Case. KEEP aging/vintage as "X Years Old" (e.g., 7YO/7yo/7 year old → "7 Years Old"). KEEP brand prefix if name alone is just a flavor/color/descriptor (e.g., "Cherry Liqueur" → "Quaglia Cherry").
+Desc: Professional factual English desc (<200 chars). No repeating name. Include production methods, flavor markers, market specs.
+Category: wine, whisky, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage.
+Return JSON: {\"name\":\"...\",\"description\":\"...\",\"category\":\"...\",\"details\":{\"style\":<int>,\"manufacturer\":\"<str>\",\"country\":\"<2-letter_iso>\",\"alcohol\":<float>,\"grape\":<int>,\"ibu\":<int>}}
+Rules for 'details': 'grape' ONLY if wine. 'ibu' ONLY if beer. Use null for any field you are not confident about.
+STYLE: Wine(0:red,1:white,2:rose,3:sparkling,4:dessert,5:fortified,6:natural),Whisky(100:singleMalt,101:blended,102:singleGrain,103:bourbon,104:rye,105:tennessee,106:irish,107:japanese,108:canadian,109:other),Beer(200:lager,201:pilsner,202:paleAle,203:ipa,204:hazyIpa,205:stout,206:porter,207:wheat,208:sour,209:belgianAle,210:amber),Asian(300:soju,301:fruitSoju,302:junmai,303:junmaiGinjo,304:junmaiDaiginjo,305:ginjo,306:daiginjo,307:honjozo,308:nigori,309:cheongju,310:yakju,311:makgeolli),Spirits(400:vodka,401:gin,402:lightRum,403:darkRum,404:spicedRum,405:tequila,406:mezcal,407:brandy,408:cognac,409:armagnac,410:absinthe,411:baijiu,412:liqueur),Cocktail(500:classic,501:craft,502:tiki,503:sour,504:highball,505:frozen,506:mocktail),Coffee(600:espresso,601:americano,602:latte,603:cappuccino,604:macchiato,605:flatWhite,606:mocha,607:drip,608:pourOver,609:coldBrew,610:singleOrigin),Other(700:other)
+GRAPE(Wine ONLY): Red(0:cabSauv,1:merlot,2:pinotNoir,3:syrah,4:malbec,5:sangiovese,6:tempranillo,7:nebbiolo,8:grenache,9:zinfandel,10:cabFranc,11:carmenere,12:gamay,13:montepulciano,14:petitVerdot),White(100:chardonnay,101:sauvBlanc,102:riesling,103:pinotGrigio,104:gewurztraminer,105:cheninBlanc,106:viognier,107:semillon,108:moscato,109:albarino,110:pinotBlanc),Other(200:redBlend,201:whiteBlend,299:other)";
 
         let request_body = GeminiRequest {
             contents: vec![Content {
@@ -136,18 +135,19 @@ pub async fn analyze_image_with_gemini(r2: &crate::utils::r2::R2Client, image_id
 pub struct GeminiScrapeInfo {
     pub category: String,
     pub description: String,
+    pub details: Option<serde_json::Value>,
 }
 
 pub async fn generate_product_info_with_gemini(product_name: &str) -> Option<GeminiScrapeInfo> {
     let api_key = std::env::var("GEMINI_API_KEY").ok()?;
     
     let prompt = format!(
-        "Analyze the product name '{}'. Provide a professional and detailed English description using your extensive knowledge. \
-        Include the official brand, standard ABV, specific production characteristics (e.g., ingredients, aging, filtration), and key flavor profile markers. \
-        STRICTLY UNDER 200 characters. Use factual, encyclopedia-style language. \
-        For well-known alcoholic beverages, you MUST include standard market specifications rather than generic phrases. \
-        Also identify the category as strictly one of: wine, whisky, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage. \
-        Return strictly in JSON format matching this structure: {{\"category\": \"...\", \"description\": \"...\"}}",
+        "Analyze '{}'. Provide factual, encyclopedia-style English desc (<200 chars). No repeating name. Include production info, flavor profile, market specs.
+Identify 'category' from: wine, whisky, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage.
+Return JSON: {{\"category\":\"...\",\"description\":\"...\",\"details\":{{\"style\":<int>,\"manufacturer\":\"<str>\",\"country\":\"<2-letter_iso>\",\"alcohol\":<float>,\"grape\":<int>,\"ibu\":<int>}}}}
+Rules for 'details': 'grape' ONLY if wine. 'ibu' ONLY if beer. Use null for any field you are not confident about.
+STYLE: Wine(0:red,1:white,2:rose,3:sparkling,4:dessert,5:fortified,6:natural),Whisky(100:singleMalt,101:blended,102:singleGrain,103:bourbon,104:rye,105:tennessee,106:irish,107:japanese,108:canadian,109:other),Beer(200:lager,201:pilsner,202:paleAle,203:ipa,204:hazyIpa,205:stout,206:porter,207:wheat,208:sour,209:belgianAle,210:amber),Asian(300:soju,301:fruitSoju,302:junmai,303:junmaiGinjo,304:junmaiDaiginjo,305:ginjo,306:daiginjo,307:honjozo,308:nigori,309:cheongju,310:yakju,311:makgeolli),Spirits(400:vodka,401:gin,402:lightRum,403:darkRum,404:spicedRum,405:tequila,406:mezcal,407:brandy,408:cognac,409:armagnac,410:absinthe,411:baijiu,412:liqueur),Cocktail(500:classic,501:craft,502:tiki,503:sour,504:highball,505:frozen,506:mocktail),Coffee(600:espresso,601:americano,602:latte,603:cappuccino,604:macchiato,605:flatWhite,606:mocha,607:drip,608:pourOver,609:coldBrew,610:singleOrigin),Other(700:other)
+GRAPE(Wine ONLY): Red(0:cabSauv,1:merlot,2:pinotNoir,3:syrah,4:malbec,5:sangiovese,6:tempranillo,7:nebbiolo,8:grenache,9:zinfandel,10:cabFranc,11:carmenere,12:gamay,13:montepulciano,14:petitVerdot),White(100:chardonnay,101:sauvBlanc,102:riesling,103:pinotGrigio,104:gewurztraminer,105:cheninBlanc,106:viognier,107:semillon,108:moscato,109:albarino,110:pinotBlanc),Other(200:redBlend,201:whiteBlend,299:other)",
         product_name
     );
 

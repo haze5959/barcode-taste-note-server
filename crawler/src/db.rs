@@ -13,6 +13,7 @@ pub struct NewProduct<'a> {
     pub type_: i16,
     pub registered: DateTime<Utc>,
     pub embedding: Option<pgvector::Vector>,
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Insertable)]

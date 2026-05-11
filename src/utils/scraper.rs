@@ -7,12 +7,13 @@ pub struct ScrapedProduct {
     pub type_: i16,
     pub desc: Option<String>,
     pub image_url: Option<String>,
+    pub details: Option<serde_json::Value>,
 }
 
 pub fn parse_category(tags_str: &str) -> i16 {
     let lower = tags_str.to_lowercase();
     if lower.contains("wine") { return 0; }
-    if lower.contains("whisky") || lower.contains("whiskies") { return 1; }
+    if lower.contains("whisky") || lower.contains("whiskey") || lower.contains("whiskies") { return 1; }
     if lower.contains("beer") { return 2; }
     if lower.contains("soju") || lower.contains("sake") { return 3; }
     if lower.contains("liqueur") || lower.contains("liquor") || lower.contains("spirit") { return 4; }
@@ -148,10 +149,10 @@ pub async fn scrape_barcode_lookup(barcode: &str) -> Option<ScrapedProduct> {
     }
 
     // Extract Type and Description using Gemini
-    let (type_, desc) = if let Some(info) = crate::utils::gemini::generate_product_info_with_gemini(&name).await {
-        (parse_category(&info.category), Some(info.description))
+    let (type_, desc, details) = if let Some(info) = crate::utils::gemini::generate_product_info_with_gemini(&name).await {
+        (parse_category(&info.category), Some(info.description), info.details)
     } else {
-        (8, None)
+        (8, None, None)
     };
 
     // Extract Image URL
@@ -171,6 +172,7 @@ pub async fn scrape_barcode_lookup(barcode: &str) -> Option<ScrapedProduct> {
         type_,
         desc,
         image_url,
+        details,
     })
 }
 

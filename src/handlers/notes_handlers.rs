@@ -3,7 +3,7 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple, NoteListQuery, NoteListResponse};
+use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple, NoteListQuery, NoteListResponse};
 use crate::schema::{flavor_tags, notes, product_images, products, users};
 use crate::utils::auth::{get_auth_info, AuthInfo};
 use crate::utils::db::get_user_id_by_sub;
@@ -854,13 +854,13 @@ fn db_update_product_stats(
     };
 
     // Flavors 업데이트
-    let product = products::table
-        .select(crate::models::PRODUCT_COLUMNS)
+    let flavor_infos_opt: Option<serde_json::Value> = products::table
+        .select(crate::schema::products::flavor_infos)
         .find(product_id)
-        .first::<Product>(conn)
+        .first::<Option<serde_json::Value>>(conn)
         .map_err(handler_disel_error)?;
 
-    let mut current_flavors_json = product.flavor_infos.unwrap_or(serde_json::json!({}));
+    let mut current_flavors_json = flavor_infos_opt.unwrap_or(serde_json::json!({}));
     if let Some(flavors) = new_flavors {
         if let Some(obj) = current_flavors_json.as_object_mut() {
             for flavor_id in flavors {

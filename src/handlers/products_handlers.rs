@@ -27,6 +27,7 @@ pub struct CreateProductParams {
     pub type_: i16,
     pub barcode_id: Option<String>,
     pub image_id: Option<Uuid>,
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -118,6 +119,7 @@ pub async fn create_product(
     if item_inner.desc.as_ref().map_or(true, |s: &String| s.trim().is_empty()) {
         if let Some(info) = crate::utils::gemini::generate_product_info_with_gemini(&item_inner.name).await {
             item_inner.desc = Some(info.description);
+            item_inner.details = info.details;
         }
     }
 
@@ -261,6 +263,7 @@ pub async fn create_product_by_ai(
         type_,
         barcode_id: item_inner.barcode_id,
         image_id: Some(final_image_id),
+        details: ai_result.details,
     };
 
     let db_clone = db.clone();
@@ -543,6 +546,7 @@ fn db_create_product(
         type_: item.type_,
         registered: Utc::now(),
         embedding: embedding,
+        details: item.details,
     };
 
     let product = conn.transaction::<Product, CommonResponseError, _>(|conn| {
@@ -599,6 +603,7 @@ fn db_create_product_by_ai(
         type_: item.type_,
         registered: Utc::now(),
         embedding: embedding,
+        details: item.details,
     };
 
     let product = conn.transaction::<Product, CommonResponseError, _>(|conn| {
@@ -932,6 +937,7 @@ async fn process_get_product_by_barcode(
                     type_: scraped.type_,
                     image_id,
                     barcode_id: Some(barcode_str.clone()),
+                    details: scraped.details,
                 };
 
                 let db_clone_check = db.clone();

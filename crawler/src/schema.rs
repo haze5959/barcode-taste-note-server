@@ -31,6 +31,7 @@ diesel::table! {
         registered -> Timestamptz,
         note_count -> Int4,
         embedding -> Nullable<Vector>,
+        details -> Nullable<Jsonb>,
     }
 }
 

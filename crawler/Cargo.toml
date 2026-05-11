@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 async-openai = "0.26.0"
 chrono = "0.4"
-diesel = { version = "2", features = ["postgres", "chrono", "uuid"] }
+diesel = { version = "2", features = ["postgres", "chrono", "uuid", "serde_json"] }
 dotenvy = "0.15"
 pgvector = { version = "0.3.3", features = ["diesel", "serde"] }
 regex = "1.12.3"

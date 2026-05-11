@@ -18,6 +18,7 @@ mod r2;
 use models::OpenFoodFactsResponse;
 use db::{establish_connection, barcode_exists, product_exists_by_name, insert_product, insert_barcode, insert_product_image, NewProduct, NewBarcode, NewProductImage};
 use r2::R2Client;
+use serde::{Deserialize, Serialize};
 
 include!("../../src/utils/block_list.rs");
 
@@ -111,17 +112,7 @@ fn parse_category(tags: &Option<Vec<String>>) -> i16 {
 }
 
 fn build_desc(brands: &Option<String>) -> Option<String> {
-    let mut desc_parts = Vec::new();
-    if let Some(b) = brands {
-        if !b.is_empty() {
-            desc_parts.push(format!("Brand: {}", b));
-        }
-    }
-    if desc_parts.is_empty() {
-        None
-    } else {
-        Some(desc_parts.join(", "))
-    }
+    brands.as_ref().filter(|b| !b.is_empty()).cloned()
 }
 
 async fn download_image(client: &Client, r2: &R2Client, url: &str, image_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
@@ -132,6 +123,102 @@ async fn download_image(client: &Client, r2: &R2Client, url: &str, image_id: Uui
         r2.upload_image(&key, bytes.to_vec(), "image/jpeg").await?;
     }
     Ok(())
+}
+
+#[derive(Serialize)]
+struct GeminiRequest {
+    contents: Vec<Content>,
+}
+
+#[derive(Serialize)]
+struct Content {
+    parts: Vec<Part>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Part {
+    Text { text: String },
+}
+
+#[derive(Deserialize)]
+struct GeminiResponse {
+    candidates: Option<Vec<Candidate>>,
+}
+
+#[derive(Deserialize)]
+struct Candidate {
+    content: Option<CandidateContent>,
+}
+
+#[derive(Deserialize)]
+struct CandidateContent {
+    parts: Option<Vec<CandidatePart>>,
+}
+
+#[derive(Deserialize)]
+struct CandidatePart {
+    text: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct OutputProduct {
+    name: Option<String>,
+    description: Option<String>,
+    category: Option<String>,
+    details: Option<serde_json::Value>,
+    error: Option<String>,
+}
+
+const GEMINI_PROMPT_TEMPLATE: &str = r#"Analyze F&B product name. If NOT F&B, return: {"error":"Not an F&B product"}.
+Name: Core English name ONLY. EXCLUDE promo/limited/seasonal/capacity/containers(Can,Bottle,Box,etc)/category suffixes(Whisky,Wine,Beer,etc). No hyphens. Title Case. KEEP aging/vintage as "X Years Old" (e.g., 7YO/7yo/7 year old → "7 Years Old"). KEEP brand prefix if name alone is just a flavor/color/descriptor (e.g., "Cherry Liqueur" → "Quaglia Cherry", "Pistachio Cream" → "Cellini Crema Di Pistacchio").
+Desc: Professional factual English desc (<200 chars). No repeating name. Include production methods, flavor markers, market specs.
+Return JSON: {"name":"...","description":"...","category":"...","details":{"style":<int>,"manufacturer":"<str>","country":"<2-letter_iso>","alcohol":<float>,"grape":<int>,"ibu":<int>}}
+Rules for 'details': 'grape' ONLY if wine. 'ibu' ONLY if beer. Use null for any field you are not confident about.
+STYLE: Wine(0:red,1:white,2:rose,3:sparkling,4:dessert,5:fortified,6:natural),Whisky(100:singleMalt,101:blended,102:singleGrain,103:bourbon,104:rye,105:tennessee,106:irish,107:japanese,108:canadian,109:other),Beer(200:lager,201:pilsner,202:paleAle,203:ipa,204:hazyIpa,205:stout,206:porter,207:wheat,208:sour,209:belgianAle,210:amber),Asian(300:soju,301:fruitSoju,302:junmai,303:junmaiGinjo,304:junmaiDaiginjo,305:ginjo,306:daiginjo,307:honjozo,308:nigori,309:cheongju,310:yakju,311:makgeolli),Spirits(400:vodka,401:gin,402:lightRum,403:darkRum,404:spicedRum,405:tequila,406:mezcal,407:brandy,408:cognac,409:armagnac,410:absinthe,411:baijiu,412:liqueur),Cocktail(500:classic,501:craft,502:tiki,503:sour,504:highball,505:frozen,506:mocktail),Coffee(600:espresso,601:americano,602:latte,603:cappuccino,604:macchiato,605:flatWhite,606:mocha,607:drip,608:pourOver,609:coldBrew,610:singleOrigin),Other(700:other)
+GRAPE(Wine ONLY): Red(0:cabSauv,1:merlot,2:pinotNoir,3:syrah,4:malbec,5:sangiovese,6:tempranillo,7:nebbiolo,8:grenache,9:zinfandel,10:cabFranc,11:carmenere,12:gamay,13:montepulciano,14:petitVerdot),White(100:chardonnay,101:sauvBlanc,102:riesling,103:pinotGrigio,104:gewurztraminer,105:cheninBlanc,106:viognier,107:semillon,108:moscato,109:albarino,110:pinotBlanc),Other(200:redBlend,201:whiteBlend,299:other)
+Product name: "{}"
+Brand: "{}" "#;
+
+async fn call_gemini(client: &reqwest::Client, api_key: &str, product_name: &str, brands: &str) -> Result<OutputProduct, String> {
+    let prompt = GEMINI_PROMPT_TEMPLATE
+        .replace("{}", product_name)
+        .replacen("{}", brands, 1);
+
+    let request_body = GeminiRequest {
+        contents: vec![Content {
+            parts: vec![Part::Text { text: prompt }],
+        }],
+    };
+
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}", api_key);
+    let res = client.post(&url)
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !res.status().is_success() {
+        return Err(format!("Status {}", res.status()));
+    }
+
+    let gemini_resp: GeminiResponse = res.json().await.map_err(|e| e.to_string())?;
+    let text_output = gemini_resp.candidates
+        .and_then(|mut c| c.pop())
+        .and_then(|c| c.content)
+        .and_then(|mut content| content.parts.take())
+        .and_then(|mut parts| parts.pop())
+        .and_then(|p| p.text)
+        .ok_or("No text in response")?;
+
+    let cleaned_text = text_output.trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim()
+        .to_string();
+
+    serde_json::from_str::<OutputProduct>(&cleaned_text).map_err(|e| e.to_string())
 }
 
 #[tokio::main]
@@ -235,7 +322,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             
             let type_ = parse_category(&off_prod.categories_tags);
-            let desc = build_desc(&off_prod.brands);
+            let brands = build_desc(&off_prod.brands);
+
+            // brands가 없으면 스킵
+            let brands_str = match brands.as_deref() {
+                Some(b) if !b.is_empty() => b.to_string(),
+                _ => {
+                    println!("Skipping product (no brand info): {}", name);
+                    continue;
+                }
+            };
 
             // 와인일 경우 상품명 앞에 브랜드를 붙여준다. 
             if type_ == 0 {
@@ -246,13 +342,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             
-            let product_id = if let Some(existing_pid) = product_exists_by_name(&mut conn, &name) {
+            let mut final_name = name.clone();
+            let mut final_desc = Some(brands_str.clone());
+            let mut final_type = type_;
+            let mut final_details = None;
+
+            if let Ok(api_key) = std::env::var("GEMINI_API_KEY") {
+                if let Ok(output) = call_gemini(&client, &api_key, &name, &brands_str).await {
+                    if output.error.is_none() {
+                        if let Some(gn) = output.name {
+                            if !gn.is_empty() { final_name = gn; }
+                        }
+                        if let Some(gd) = output.description {
+                            if !gd.is_empty() { final_desc = Some(gd); }
+                        }
+                        if let Some(gc) = output.category {
+                            let tags = Some(vec![gc]);
+                            final_type = parse_category(&tags);
+                        }
+                        final_details = output.details;
+                    }
+                } else {
+                    println!("Failed to call Gemini for: {}", name);
+                }
+            }
+            
+            let product_id = if let Some(existing_pid) = product_exists_by_name(&mut conn, &final_name) {
                 existing_pid
             } else {
-                let embedding = match openai::get_embedding(&name).await {
+                let embedding = match openai::get_embedding(&final_name).await {
                     Ok(vec) => Some(vec),
                     Err(e) => {
-                        println!("Failed to get embedding for {}: {}", name, e);
+                        println!("Failed to get embedding for {}: {}", final_name, e);
                         None
                     }
                 };
@@ -260,11 +381,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let pid = Uuid::new_v4();
                 let new_product = NewProduct {
                     id: pid,
-                    name: &name,
-                    desc: desc.as_deref(),
-                    type_,
+                    name: &final_name,
+                    desc: final_desc.as_deref(),
+                    type_: final_type,
                     registered: Utc::now(),
                     embedding,
+                    details: final_details,
                 };
                 
                 if insert_product(&mut conn, &new_product).is_err() {

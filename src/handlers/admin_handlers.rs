@@ -38,6 +38,20 @@ pub struct AdminUpdateProductParams {
     pub desc: Option<String>,
     #[serde(rename = "type")]
     pub type_: Option<i16>,
+    pub details: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminProductDetailsQuery {
+    pub product_name: String,
+    pub only_details: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminProductDetailsResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub desc: Option<String>,
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -379,6 +393,39 @@ fn db_get_admin_product_main_image(pool: web::Data<Pool>, product_id: Uuid) -> R
 }
 
 // ============================================
+// MARK: GET /admin/product/details
+// ============================================
+pub async fn get_admin_product_details(
+    req: HttpRequest,
+    query: web::Query<AdminProductDetailsQuery>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let query_inner = query.into_inner();
+    let product_name = query_inner.product_name;
+
+    if let Some(info) = crate::utils::gemini::generate_product_info_with_gemini(&product_name).await {
+        let response_data = AdminProductDetailsResponse {
+            desc: if query_inner.only_details { None } else { Some(info.description) },
+            details: info.details,
+        };
+        let response = CommonResponse {
+            result: true,
+            data: response_data,
+            error: None,
+        };
+        Ok(HttpResponse::Ok().json(response))
+    } else {
+        let resp: CommonResponse<Option<()>> = CommonResponse {
+            result: false,
+            data: None,
+            error: Some(CommonResponseError::InternalServerError as u8),
+        };
+        Ok(HttpResponse::Ok().json(resp))
+    }
+}
+
+// ============================================
 // MARK: PUT /admin/product
 // ============================================
 pub async fn update_admin_product(
@@ -392,6 +439,7 @@ pub async fn update_admin_product(
     let name = item.name.clone();
     let desc = item.desc.clone();
     let type_ = item.type_;
+    let details = item.details.clone();
 
     // 임베딩 갱신 필요 여부
     let new_embedding = if let Some(ref new_name) = name {
@@ -401,7 +449,7 @@ pub async fn update_admin_product(
     };
 
     let updated_product = web::block(move || {
-        db_update_admin_product(db, product_id, name, desc, type_, new_embedding)
+        db_update_admin_product(db, product_id, name, desc, type_, details, new_embedding)
     })
     .await??;
 
@@ -421,6 +469,7 @@ struct AdminProductChangeset {
     #[diesel(column_name = type_)]
     type_: Option<i16>,
     embedding: Option<Vector>,
+    details: Option<serde_json::Value>,
 }
 
 fn db_update_admin_product(
@@ -429,6 +478,7 @@ fn db_update_admin_product(
     name: Option<String>,
     desc: Option<String>,
     type_: Option<i16>,
+    details: Option<serde_json::Value>,
     new_embedding: Option<Vector>,
 ) -> Result<Product, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
@@ -438,6 +488,7 @@ fn db_update_admin_product(
         desc,
         type_,
         embedding: new_embedding,
+        details,
     };
 
     let updated_product = conn.transaction::<Product, CommonResponseError, _>(|conn| {

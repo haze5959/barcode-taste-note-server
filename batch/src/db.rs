@@ -16,6 +16,7 @@ pub struct NewProduct<'a> {
     pub type_: i16,
     pub registered: DateTime<Utc>,
     pub embedding: Option<pgvector::Vector>,
+    pub details: Option<serde_json::Value>,
 }
 
 /// barcodes 테이블 Insertable

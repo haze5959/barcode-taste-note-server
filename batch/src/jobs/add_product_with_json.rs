@@ -19,6 +19,7 @@ pub struct ProductJsonItem {
     #[serde(rename = "type")]
     pub type_: String,
     pub image_url: Option<String>,
+    pub details: Option<serde_json::Value>,
 }
 
 /// new_product.json 경로 (batch 폴더 내 data 디렉토리)
@@ -80,6 +81,7 @@ pub async fn run(conn: &mut PgConnection, r2: &R2Client) {
                 type_,
                 registered: Utc::now(),
                 embedding: None, // 배치에서는 임베딩 생략
+                details: item.details.clone(),
             };
 
             if let Err(e) = insert_product(conn, &new_product) {
@@ -215,7 +217,7 @@ fn clean_product_name(name: &str) -> String {
 fn parse_category(type_str: &str) -> i16 {
     let lower = type_str.to_lowercase();
     if lower.contains("wine") { return 0; }
-    if lower.contains("whisky") || lower.contains("whiskies") { return 1; }
+    if lower.contains("whisky") || lower.contains("whiskey") || lower.contains("whiskies") { return 1; }
     if lower.contains("beer") { return 2; }
     if lower.contains("soju") || lower.contains("sake") { return 3; }
     if lower.contains("liqueur") || lower.contains("liquor") || lower.contains("spirit") { return 4; }
