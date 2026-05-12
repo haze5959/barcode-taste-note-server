@@ -64,7 +64,7 @@ pub async fn analyze_image_with_gemini(r2: &crate::utils::r2::R2Client, image_id
         let base64_image = STANDARD.encode(image_bytes);
 
         let prompt = "Analyze image for F&B/alcohol. If NOT F&B, return: {\"error\":\"Not an F&B product\"}.
-Name: Core English name ONLY. No promo/limited/seasonal/capacity info. No hyphens. Title Case. KEEP aging/vintage as "X Years Old" (e.g., 7YO/7yo/7 year old → "7 Years Old"). KEEP brand prefix if name alone is just a flavor/color/descriptor (e.g., "Cherry Liqueur" → "Quaglia Cherry").
+Name: Core English name ONLY. No promo/limited/seasonal/capacity info. No hyphens. Title Case. KEEP aging/vintage as \"X Years Old\" (e.g., 7YO/7yo/7 year old -> \"7 Years Old\"). If it is a wine, KEEP the vintage year in the name (e.g. \"2019\"). KEEP brand prefix if name alone is just a flavor/color/descriptor (e.g., \"Cherry Liqueur\" -> \"Quaglia Cherry\").
 Desc: Professional factual English desc (<200 chars). No repeating name. Include production methods, flavor markers, market specs.
 Category: wine, whisky, beer, soju, sake, liqueur, spirit, cocktail, coffee, beverage.
 Return JSON: {\"name\":\"...\",\"description\":\"...\",\"category\":\"...\",\"details\":{\"style\":<int>,\"manufacturer\":\"<str>\",\"country\":\"<2-letter_iso>\",\"alcohol\":<float>,\"grape\":<int>,\"ibu\":<int>}}
@@ -86,7 +86,7 @@ GRAPE(Wine ONLY): Red(0:cabSauv,1:merlot,2:pinotNoir,3:syrah,4:malbec,5:sangiove
             }]
         };
 
-        let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}", api_key);
+        let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={}", api_key);
         let client = reqwest::Client::new();
         let res = client.post(&url)
             .json(&request_body)
@@ -159,7 +159,7 @@ GRAPE(Wine ONLY): Red(0:cabSauv,1:merlot,2:pinotNoir,3:syrah,4:malbec,5:sangiove
         }]
     };
 
-    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}", api_key);
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={}", api_key);
     let client = reqwest::Client::new();
     let res = client.post(&url)
         .json(&request_body)

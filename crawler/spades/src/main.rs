@@ -19,15 +19,13 @@ const COLLECTIONS: &[CollectionConfig] = &[
     // CollectionConfig { path: "tequila", type_: "spirit" },
     // CollectionConfig { path: "vodka", type_: "spirit" },
     // CollectionConfig { path: "rum", type_: "spirit" },
-
-    CollectionConfig { path: "whiskey", type_: "whisky" },
-    CollectionConfig { path: "gins", type_: "spirit" },
-    CollectionConfig { path: "brandy-cognac", type_: "whisky" },
-    CollectionConfig { path: "beers-ciders", type_: "beer" },
+    // CollectionConfig { path: "whiskey", type_: "whisky" },
+    // CollectionConfig { path: "gins", type_: "spirit" },
+    // CollectionConfig { path: "brandy-cognac", type_: "whisky" },
+    // CollectionConfig { path: "beers-ciders", type_: "beer" },
 
     // 대기
-    // CollectionConfig { path: "red-wine", type_: "wine" },
-    // CollectionConfig { path: "white-wine", type_: "wine" },
+    CollectionConfig { path: "wines", type_: "wine" },
 ];
 
 // ============================================================
@@ -109,7 +107,7 @@ struct OutputProduct {
 // ============================================================
 
 const GEMINI_PROMPT_TEMPLATE: &str = r#"Analyze F&B product name. If NOT F&B, return: {"error":"Not an F&B product"}.
-Name: Core English name ONLY. EXCLUDE promo/limited/seasonal/capacity/containers(Can,Bottle,Box,etc)/category suffixes(Whisky,Wine,Beer,etc). No hyphens. Title Case. KEEP aging/vintage as "X Years Old" (e.g., 7YO/7yo/7 year old → "7 Years Old"). KEEP brand prefix if name alone is just a flavor/color/descriptor (e.g., "Cherry Liqueur" → "Quaglia Cherry", "Pistachio Cream" → "Cellini Crema Di Pistacchio").
+Name: Core English name ONLY. EXCLUDE promo/limited/seasonal/capacity/containers(Can,Bottle,Box,etc)/category suffixes(Whisky,Wine,Beer,etc). No hyphens. Title Case. KEEP aging/vintage as "X Years Old" (e.g., 7YO/7yo/7 year old → "7 Years Old"). If it is a wine, KEEP the vintage year in the name (e.g. "2019"). KEEP brand prefix if name alone is just a flavor/color/descriptor (e.g., "Cherry Liqueur" → "Quaglia Cherry", "Pistachio Cream" → "Cellini Crema Di Pistacchio").
 Desc: Professional factual English desc (<200 chars). No repeating name. Include production methods, flavor markers, market specs.
 Return JSON: {"product_name":"...","desc":"...","details":{"style":<int>,"manufacturer":"<str>","country":"<2-letter_iso>","alcohol":<float>,"grape":<int>,"ibu":<int>}}
 Rules for 'details': 'grape' ONLY if wine. 'ibu' ONLY if beer. Use null for any field you are not confident about.
@@ -127,7 +125,7 @@ async fn call_gemini(client: &reqwest::Client, api_key: &str, product_name: &str
     };
 
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={}",
         api_key
     );
 
