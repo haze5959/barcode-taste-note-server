@@ -16,7 +16,7 @@ mod openai;
 mod r2;
 
 use models::OpenFoodFactsResponse;
-use db::{establish_connection, barcode_exists, product_exists_by_name, insert_product, insert_barcode, insert_product_image, NewProduct, NewBarcode, NewProductImage};
+use db::{establish_connection, barcode_exists, insert_product, insert_barcode, insert_product_image, NewProduct, NewBarcode, NewProductImage};
 use r2::R2Client;
 use serde::{Deserialize, Serialize};
 
@@ -367,9 +367,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             
-            let product_id = if let Some(existing_pid) = product_exists_by_name(&mut conn, &final_name) {
-                existing_pid
-            } else {
+            let product_id = {
                 let embedding = match openai::get_embedding(&final_name).await {
                     Ok(vec) => Some(vec),
                     Err(e) => {
