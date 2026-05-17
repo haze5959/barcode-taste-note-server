@@ -5,9 +5,7 @@ use crate::db::{
 use crate::r2::R2Client;
 use chrono::Utc;
 use diesel::pg::PgConnection;
-use regex::Regex;
 use serde::Deserialize;
-use std::sync::OnceLock;
 use uuid::Uuid;
 
 /// new_product.json에서 읽어올 아이템 구조
@@ -50,10 +48,9 @@ pub async fn run(conn: &mut PgConnection, r2: &R2Client) {
     let client = reqwest::Client::new();
 
     for item in &items {
-        // 이름 정제
-        let cleaned_name = clean_product_name(&item.product_name);
+        let cleaned_name = item.product_name.trim().to_string();
         if cleaned_name.is_empty() {
-            println!("{} 추가 실패: 이름이 비어 있음 (원본: {})", item.product_name, item.product_name);
+            println!("추가 실패: 이름이 비어 있음");
             continue;
         }
 
@@ -143,74 +140,6 @@ async fn download_and_upload_image(
     let key = format!("images/{}", image_id);
     r2.upload_image(&key, bytes.to_vec(), "image/jpeg").await?;
     Ok(())
-}
-
-/// crawler/src/main.rs의 clean_product_name과 동일한 로직
-fn clean_product_name(name: &str) -> String {
-    let mut cleaned = name.replace("&quot;", "\"").replace("&amp;", "&");
-    
-    static RE_PARENS: OnceLock<Regex> = OnceLock::new();
-    let re_parens = RE_PARENS.get_or_init(|| Regex::new(r"\(.*?\)").unwrap());
-    cleaned = re_parens.replace_all(&cleaned, " ").to_string();
-    
-    static RE_YEARS: OnceLock<Regex> = OnceLock::new();
-    let re_years = RE_YEARS.get_or_init(|| Regex::new(r"(?i)\b(?:aged\s+)?(\d+)\s*(?:years?(?:\s*old)?|y\.?o\.?)\b").unwrap());
-    cleaned = re_years.replace_all(&cleaned, "${1} Years Old").to_string();
-    
-    static RE_ABV: OnceLock<Regex> = OnceLock::new();
-    let re_abv = RE_ABV.get_or_init(|| Regex::new(r"(?i)\d+(\.\d+)?\s*%\s*(vol\.?)?").unwrap());
-    cleaned = re_abv.replace_all(&cleaned, " ").to_string();
-    
-    static RE_MEASURE: OnceLock<Regex> = OnceLock::new();
-    let re_measure = RE_MEASURE.get_or_init(|| Regex::new(r"(?i)\b\d+(\.\d+)?\s*(ml|cl|lt|l|liter|liters|litre|litres|g|kg|mg|oz|fl\.?\s*oz|lb|lbs)\b").unwrap());
-    cleaned = re_measure.replace_all(&cleaned, " ").to_string();
-    
-    static RE_QTY: OnceLock<Regex> = OnceLock::new();
-    let re_qty = RE_QTY.get_or_init(|| Regex::new(r"(?i)\b(x\s*\d+\s*(pcs|pack|packs|ea)?|\d+\s*(pcs|pack|packs|ea|bottles|cans))\b").unwrap());
-    cleaned = re_qty.replace_all(&cleaned, " ").to_string();
-    
-    static RE_SPAM: OnceLock<Regex> = OnceLock::new();
-    let re_spam = RE_SPAM.get_or_init(|| Regex::new(r"(?i)\b(empty|can only|no drink|used|aluminum|pull tab|beer can|from \d{4})\b").unwrap());
-    cleaned = re_spam.replace_all(&cleaned, " ").to_string();
-    
-    static RE_SYMBOLS: OnceLock<Regex> = OnceLock::new();
-    let re_symbols = RE_SYMBOLS.get_or_init(|| Regex::new(r"[-_—|/·,]").unwrap());
-    cleaned = re_symbols.replace_all(&cleaned, " ").to_string();
-
-    static RE_SPACES: OnceLock<Regex> = OnceLock::new();
-    let re_spaces = RE_SPACES.get_or_init(|| Regex::new(r"\s{2,}").unwrap());
-    cleaned = re_spaces.replace_all(&cleaned, " ").to_string();
-
-    // 이름 끝에 남는 단독 숫자·개수·용량 패턴 반복 제거
-    // 예: "6 pack", "x1", "1 LT", ", 5", ", 0" 등
-    static RE_TRAILING: OnceLock<Regex> = OnceLock::new();
-    let re_trailing = RE_TRAILING.get_or_init(|| {
-        Regex::new(r"(?i)\s+(x\s*\d+|\d+\s*(pack|packs|lt|l|ml|cl|g|kg|oz|pcs|ea|bottles|cans)?|\d+)$").unwrap()
-    });
-    loop {
-        let next = re_trailing.replace(&cleaned, "").to_string();
-        let next = next.trim().trim_end_matches(&[',', '-', ' ', '.'][..]).trim().to_string();
-        if next == cleaned.trim() {
-            break;
-        }
-        cleaned = next;
-    }
-
-    // Remove trailing commas, hyphens, spaces, or dots
-    let trimmed = cleaned.trim().trim_end_matches(&[',', '-', ' ', '.'][..]).trim().to_string();
-
-    // Title Case 변환: 각 단어의 첫 글자를 대문자로
-    trimmed
-        .split_whitespace()
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// type 문자열로 카테고리 int 반환

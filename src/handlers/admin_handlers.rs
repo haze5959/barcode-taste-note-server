@@ -858,3 +858,96 @@ pub async fn delete_admin_image(
     };
     Ok(HttpResponse::Ok().json(response))
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminBarcodePayload {
+    pub barcode_id: String,
+    pub product_id: Uuid,
+}
+
+// ============================================
+// MARK: PUT /admin/barcode
+// ============================================
+pub async fn update_admin_barcode(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    payload: web::Json<AdminBarcodePayload>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+    let payload = payload.into_inner();
+
+    web::block(move || {
+        let conn = &mut db.get().unwrap();
+        diesel::update(barcodes::table.filter(barcodes::barcode_id.eq(payload.barcode_id)))
+            .set(barcodes::product_id.eq(payload.product_id))
+            .execute(conn)
+            .map_err(handler_disel_error)
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: POST /admin/barcode
+// ============================================
+pub async fn add_admin_barcode(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    payload: web::Json<AdminBarcodePayload>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+    let payload = payload.into_inner();
+
+    web::block(move || {
+        let conn = &mut db.get().unwrap();
+        diesel::insert_into(barcodes::table)
+            .values((
+                barcodes::id.eq(Uuid::new_v4()),
+                barcodes::barcode_id.eq(payload.barcode_id),
+                barcodes::product_id.eq(payload.product_id),
+            ))
+            .execute(conn)
+            .map_err(handler_disel_error)
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: DELETE /admin/barcode/:barcode_id
+// ============================================
+pub async fn delete_admin_barcode(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    barcode_id_param: web::Path<String>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+    let barcode_id = barcode_id_param.into_inner();
+
+    web::block(move || {
+        let conn = &mut db.get().unwrap();
+        diesel::delete(barcodes::table.filter(barcodes::barcode_id.eq(barcode_id)))
+            .execute(conn)
+            .map_err(handler_disel_error)
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
