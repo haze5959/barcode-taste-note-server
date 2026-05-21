@@ -1,6 +1,6 @@
 use crate::db::{
-    barcode_exists, insert_barcode, insert_product, insert_product_image,
-    product_exists_by_name, NewBarcode, NewProduct, NewProductImage,
+    get_product_id_and_details_by_barcode, insert_barcode, insert_product, insert_product_image,
+    product_exists_by_name, update_product_info, NewBarcode, NewProduct, NewProductImage,
 };
 use crate::r2::R2Client;
 use chrono::Utc;
@@ -55,8 +55,38 @@ pub async fn run(conn: &mut PgConnection, r2: &R2Client) {
         }
 
         // 바코드 중복 확인
-        if barcode_exists(conn, &item.barcode) {
-            println!("{} 이미 존재 (바코드: {})", cleaned_name, item.barcode);
+        if let Some((pid, details)) = get_product_id_and_details_by_barcode(conn, &item.barcode) {
+            if details.is_none() {
+                // 정보 갱신
+                let type_ = parse_category(&item.type_);
+                let desc = if item.desc.is_empty() { None } else { Some(item.desc.as_str()) };
+                
+                if let Err(e) = update_product_info(conn, pid, desc, type_, item.details.clone()) {
+                    println!("{} 정보 갱신 실패: {}", cleaned_name, e);
+                } else {
+                    println!("{} 정보 갱신", cleaned_name);
+                }
+
+                // 이미지 처리
+                if let Some(ref url) = item.image_url {
+                    let image_id = Uuid::new_v4();
+                    match download_and_upload_image(&client, r2, url, image_id).await {
+                        Ok(_) => {
+                            let new_image = NewProductImage {
+                                id: image_id,
+                                product_id: Some(pid),
+                                registered: Utc::now().naive_utc(),
+                            };
+                            if let Err(e) = insert_product_image(conn, &new_image) {
+                                println!("{} 이미지 DB 저장 실패: {}", cleaned_name, e);
+                            }
+                        }
+                        Err(e) => println!("{} 이미지 업로드 실패: {}", cleaned_name, e),
+                    }
+                }
+            } else {
+                println!("{} 이미 존재 (바코드: {})", cleaned_name, item.barcode);
+            }
             continue;
         }
 
@@ -150,8 +180,6 @@ fn parse_category(type_str: &str) -> i16 {
     if lower.contains("beer") { return 2; }
     if lower.contains("soju") || lower.contains("sake") { return 3; }
     if lower.contains("liqueur") || lower.contains("liquor") || lower.contains("spirit") { return 4; }
-    if lower.contains("cocktail") { return 5; }
-    if lower.contains("coffee") { return 6; }
     if lower.contains("beverage") { return 7; }
     8
 }
