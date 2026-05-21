@@ -50,7 +50,7 @@ cargo run add_product_with_json
 | `barcode` | `string` | 제품 바코드 (중복 시 스킵) |
 | `product_name` | `string` | 제품명 (자동으로 Title Case 및 불필요 패턴 제거 적용) |
 | `desc` | `string` | 제품 설명 |
-| `type` | `string` | 카테고리 (`whisky`, `wine`, `beer`, `soju`, `sake`, `liqueur`, `spirit`, `cocktail`, `coffee`, `beverage`, 기타) |
+| `type` | `string` | 카테고리 (`whisky`, `wine`, `beer`, `soju`, `sake`, `liqueur`, `spirit`, `beverage`, 기타) |
 | `image_url` | `string?` | 이미지 URL (선택값, 있으면 R2 업로드 및 DB 연결) |
 
 **작동 방식 (`What it does`)**

@@ -46,5 +46,7 @@ members = [
     "crawler/emart",
     "crawler/artdrink",
     "crawler/spades",
+    "crawler/willowspirits",
+    "crawler/listex",
     "batch"
 ]

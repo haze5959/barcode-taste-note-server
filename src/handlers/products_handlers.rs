@@ -335,6 +335,73 @@ pub async fn get_product_by_barcode_with_auth(
     process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), Some(user_sub)).await
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AutocompleteQuery {
+    pub search: String,
+    #[serde(rename = "type")]
+    pub type_: Option<i16>,
+}
+
+/// Path: /products/autocomplete
+pub async fn get_products_autocomplete(
+    db: web::Data<Pool>,
+    query: web::Query<AutocompleteQuery>,
+) -> Result<HttpResponse, Error> {
+    let query_inner = query.into_inner();
+    let search = query_inner.search.trim().to_string();
+    let type_filter = query_inner.type_;
+
+    if search.is_empty() {
+        let response: CommonResponse<Vec<String>> = CommonResponse { result: true, data: vec![], error: None };
+        return Ok(HttpResponse::Ok().json(response));
+    }
+
+    // 1단계: LIKE 검색
+    let search_clone = search.clone();
+    let db_clone = db.clone();
+    let results = web::block(move || db_autocomplete_by_like(db_clone, &search_clone, type_filter)).await??;
+    if !results.is_empty() {
+        let response = CommonResponse { result: true, data: results, error: None };
+        return Ok(HttpResponse::Ok().json(response));
+    }
+
+    // 2단계: CJK 문자가 포함된 경우 영어로 번역 후 재검색
+    let translated = crate::utils::translator::translate_to_english_if_cjk(&search).await;
+    if translated != search {
+        let results = web::block(move || db_autocomplete_by_like(db, &translated, type_filter)).await??;
+        let response = CommonResponse { result: true, data: results, error: None };
+        return Ok(HttpResponse::Ok().json(response));
+    }
+
+    let response: CommonResponse<Vec<String>> = CommonResponse { result: true, data: vec![], error: None };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+fn db_autocomplete_by_like(
+    db: web::Data<Pool>,
+    search: &str,
+    type_filter: Option<i16>,
+) -> Result<Vec<String>, CommonResponseError> {
+    let conn = &mut db.get().unwrap();
+    let like_pattern = format!("%{}%", search.to_lowercase());
+
+    let mut query = products::table
+        .into_boxed()
+        .filter(
+            diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) LIKE ")
+                .bind::<diesel::sql_types::Text, _>(like_pattern)
+        )
+        .order((products::note_count.desc(), products::rating.desc().nulls_last()))
+        .limit(10)
+        .select(products::name);
+
+    if let Some(t) = type_filter {
+        query = query.filter(products::type_.eq(t));
+    }
+
+    query.load::<String>(conn).map_err(handler_disel_error)
+}
+
 /// Path: /products
 pub async fn get_products_list(
     db: web::Data<Pool>,

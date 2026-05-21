@@ -104,8 +104,6 @@ fn parse_category(tags: &Option<Vec<String>>) -> i16 {
         if tags_str.contains("beer") { return 2; }
         if tags_str.contains("soju") || tags_str.contains("sake") { return 3; }
         if tags_str.contains("liqueur") || tags_str.contains("liquor") || tags_str.contains("spirit") { return 4; }
-        if tags_str.contains("cocktail") { return 5; }
-        if tags_str.contains("coffee") { return 6; }
         if tags_str.contains("beverage") { return 7; }
     }
     8

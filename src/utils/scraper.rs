@@ -17,8 +17,6 @@ pub fn parse_category(tags_str: &str) -> i16 {
     if lower.contains("beer") { return 2; }
     if lower.contains("soju") || lower.contains("sake") { return 3; }
     if lower.contains("liqueur") || lower.contains("liquor") || lower.contains("spirit") { return 4; }
-    if lower.contains("cocktail") { return 5; }
-    if lower.contains("coffee") { return 6; }
     if lower.contains("beverage") { return 7; }
     8
 }

@@ -34,3 +34,12 @@ diesel::table! {
         product_id -> Uuid,
     }
 }
+
+diesel::joinable!(barcodes -> products (product_id));
+diesel::joinable!(product_images -> products (product_id));
+
+diesel::allow_tables_to_appear_in_same_query!(
+    barcodes,
+    product_images,
+    products,
+);

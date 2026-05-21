@@ -64,6 +64,7 @@ async fn main() -> std::io::Result<()> {
             // Products
             .route("/products", web::post().to(handlers::products_handlers::create_product))
             .route("/products", web::get().to(handlers::products_handlers::get_products_list))
+            .route("/products/autocomplete", web::get().to(handlers::products_handlers::get_products_autocomplete))
             .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list_by_user_id))
             .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode))
             .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id))

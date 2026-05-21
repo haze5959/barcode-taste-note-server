@@ -53,13 +53,7 @@ pub fn establish_connection() -> PgConnection {
         .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
 }
 
-/// 해당 barcode_id가 이미 존재하는지 확인
-pub fn barcode_exists(conn: &mut PgConnection, code: &str) -> bool {
-    use diesel::dsl::{select, exists};
-    select(exists(barcodes::dsl::barcodes.filter(barcodes::dsl::barcode_id.eq(code))))
-        .get_result(conn)
-        .unwrap_or(false)
-}
+
 
 /// 동일 이름의 product가 있으면 product_id 반환
 pub fn product_exists_by_name(conn: &mut PgConnection, product_name: &str) -> Option<Uuid> {
@@ -86,5 +80,30 @@ pub fn insert_barcode(conn: &mut PgConnection, new_barcode: &NewBarcode) -> Quer
 pub fn insert_product_image(conn: &mut PgConnection, new_image: &NewProductImage) -> QueryResult<usize> {
     diesel::insert_into(product_images::table)
         .values(new_image)
+        .execute(conn)
+}
+
+pub fn get_product_id_and_details_by_barcode(conn: &mut PgConnection, code: &str) -> Option<(Uuid, Option<serde_json::Value>)> {
+    barcodes::dsl::barcodes
+        .inner_join(products::dsl::products)
+        .filter(barcodes::dsl::barcode_id.eq(code))
+        .select((products::dsl::id, products::dsl::details))
+        .first::<(Uuid, Option<serde_json::Value>)>(conn)
+        .ok()
+}
+
+pub fn update_product_info(
+    conn: &mut PgConnection,
+    pid: Uuid,
+    new_desc: Option<&str>,
+    new_type: i16,
+    new_details: Option<serde_json::Value>,
+) -> QueryResult<usize> {
+    diesel::update(products::dsl::products.find(pid))
+        .set((
+            products::dsl::desc.eq(new_desc),
+            products::dsl::type_.eq(new_type),
+            products::dsl::details.eq(new_details),
+        ))
         .execute(conn)
 }
