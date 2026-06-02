@@ -206,7 +206,8 @@ fn db_get_images(
     let per = query.per.unwrap_or(10);
     let offset = (page - 1) * per;
 
-    let mut images_query = product_images::table.into_boxed();
+    let mut images_query = product_images::table.into_boxed()
+        .filter(product_images::public_scope.is_null().or(product_images::public_scope.eq(2)));
 
     if let Some(product_id) = query.product_id {
         images_query = images_query.filter(product_images::product_id.eq(product_id));
@@ -254,6 +255,7 @@ fn db_add_product_image(
         note_id,
         user_id: user_id,
         registered: Utc::now(),
+        public_scope: None,
     };
 
     let image = insert_into(product_images::table)

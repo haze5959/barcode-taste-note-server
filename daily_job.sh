@@ -22,9 +22,9 @@ EMAIL="barcodetastenote@gmail.com"
 echo "#########[$(date)]############" >> "$LOG_FILE"
 
 # 1. Crawler 실행
-echo "Running Crawler..." >> "$LOG_FILE"
-$PROJECT_ROOT/deploy_bin/barnote_crawler >> "$LOG_FILE" 2>&1
-CRAWLER_STATUS=$?
+# echo "Running Crawler..." >> "$LOG_FILE"
+# $PROJECT_ROOT/deploy_bin/barnote_crawler >> "$LOG_FILE" 2>&1
+# CRAWLER_STATUS=$?
 
 # 2. DB Backup 실행
 echo "Running DB Backup..." >> "$LOG_FILE"

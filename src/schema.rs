@@ -83,6 +83,7 @@ diesel::table! {
         note_id -> Nullable<Uuid>,
         user_id -> Nullable<Uuid>,
         registered -> Timestamptz,
+        public_scope -> Nullable<Int2>,
     }
 }
 

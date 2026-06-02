@@ -398,6 +398,7 @@ fn db_create_note(
                     product_images::user_id.eq(user_id),
                     product_images::note_id.eq(note.id),
                     product_images::product_id.eq(note.product_id),
+                    product_images::public_scope.eq(Some(item.public_scope)),
                 ))
                 .execute(conn)?;
         }
@@ -723,6 +724,11 @@ fn db_update_note(
                 ))
                 .execute(conn)?;
         }
+
+        // 해당 노트에 연결된 모든 이미지의 public_scope 업데이트
+        diesel::update(product_images::table.filter(product_images::note_id.eq(note_id)))
+            .set(product_images::public_scope.eq(Some(item.public_scope)))
+            .execute(conn)?;
 
         // Flavor tags 업데이트
         if let Some(flavors) = &item.selected_flavors {

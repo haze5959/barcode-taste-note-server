@@ -139,6 +139,7 @@ pub struct ProductImage {
     pub note_id: Option<Uuid>,
     pub user_id: Option<Uuid>,
     pub registered: DateTime<Utc>,
+    pub public_scope: Option<i16>,
 }
 
 #[derive(Insertable, Debug)]
@@ -149,6 +150,7 @@ pub struct NewProductImage {
     pub note_id: Option<Uuid>,
     pub user_id: Option<Uuid>,
     pub registered: DateTime<Utc>,
+    pub public_scope: Option<i16>,
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]

@@ -134,6 +134,7 @@ pub async fn create_product(
                     note_id: None,
                     user_id: None,
                     registered: chrono::Utc::now(),
+                    public_scope: None,
                 };
                 let db_clone_img = db.clone();
                 let _ = web::block(move || {
@@ -224,6 +225,7 @@ pub async fn create_product_by_ai(
                 note_id: None,
                 user_id: None,
                 registered: chrono::Utc::now(),
+                public_scope: None,
             };
             let db_clone_img = db.clone();
             let insert_ok = web::block(move || {
@@ -712,6 +714,7 @@ fn db_get_product_by_id(
     // 제품 이미지 ID들 조회
     let image_ids: Vec<Uuid> = product_images::table
         .filter(product_images::product_id.eq(in_product_id))
+        .filter(product_images::public_scope.is_null().or(product_images::public_scope.eq(2)))
         .select(product_images::id)
         .order((product_images::note_id.desc(), product_images::registered.asc()))
         .limit(10)
@@ -780,6 +783,7 @@ fn db_get_product_by_barcode(
     // 제품 이미지 ID들 조회
     let image_ids: Vec<Uuid> = product_images::table
         .filter(product_images::product_id.eq(product_id))
+        .filter(product_images::public_scope.is_null().or(product_images::public_scope.eq(2)))
         .select(product_images::id)
         .order((product_images::note_id.desc(), product_images::registered.asc()))
         .limit(10)
@@ -983,6 +987,7 @@ async fn process_get_product_by_barcode(
                             note_id: None,
                             user_id: None,
                             registered: chrono::Utc::now(),
+                            public_scope: None,
                         };
                         let db_clone_img = db.clone();
                         let _ = web::block(move || {

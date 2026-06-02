@@ -669,6 +669,7 @@ pub async fn upload_admin_image(
         note_id: None,
         user_id: None,
         registered: chrono::Utc::now(),
+        public_scope: None,
     };
     web::block(move || {
         let conn = &mut db.get().unwrap();
@@ -760,6 +761,7 @@ pub async fn upload_admin_image_by_url(
         note_id: None,
         user_id: None,
         registered: chrono::Utc::now(),
+        public_scope: None,
     };
     web::block(move || {
         let conn = &mut db.get().unwrap();

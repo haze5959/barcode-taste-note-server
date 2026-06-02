@@ -418,7 +418,7 @@ fn db_search_users(
     if let Some(nick) = query.nick_name {
         if !nick.trim().is_empty() {
             let search_pattern = format!("%{}%", nick);
-            user_query = user_query.filter(crate::schema::users::nick_name.like(search_pattern));
+            user_query = user_query.filter(crate::schema::users::nick_name.ilike(search_pattern));
         }
     }
 
