@@ -377,15 +377,17 @@ pub async fn get_products_autocomplete(
         return Ok(HttpResponse::Ok().json(response));
     }
 
-    // 2단계: CJK 문자가 포함된 경우 영어로 번역 후 재검색
-    let translated = crate::utils::translator::translate_to_english_if_cjk(&search).await;
-    if translated != search {
-        let results = web::block(move || db_autocomplete_by_like(db, &translated, type_filter)).await??;
-        let response = CommonResponse { result: true, data: results, error: None };
-        return Ok(HttpResponse::Ok().json(response));
-    }
-
-    let response: CommonResponse<Vec<String>> = CommonResponse { result: true, data: vec![], error: None };
+    // 2단계: LIKE 결과 없음 → 이름 임베딩 유사도 검색 (search_query)
+    let embedding = match crate::utils::openai::get_query_embedding(&search).await {
+        Ok(vec) => vec,
+        Err(e) => {
+            error!("[Cohere Embedding Error] {}", e);
+            let response: CommonResponse<Vec<String>> = CommonResponse { result: true, data: vec![], error: None };
+            return Ok(HttpResponse::Ok().json(response));
+        }
+    };
+    let results = web::block(move || db_autocomplete_by_embedding(db, embedding, type_filter)).await??;
+    let response = CommonResponse { result: true, data: results, error: None };
     Ok(HttpResponse::Ok().json(response))
 }
 
@@ -404,6 +406,29 @@ fn db_autocomplete_by_like(
                 .bind::<diesel::sql_types::Text, _>(like_pattern)
         )
         .order((products::note_count.desc(), products::rating.desc().nulls_last()))
+        .limit(10)
+        .select(products::name);
+
+    if let Some(t) = type_filter {
+        query = query.filter(products::type_.eq(t));
+    }
+
+    query.load::<String>(conn).map_err(handler_disel_error)
+}
+
+/// 자동완성 벡터 검색: 이름 임베딩 L2 유사도 기준 상위 제품명 조회
+fn db_autocomplete_by_embedding(
+    db: web::Data<Pool>,
+    embedding: pgvector::Vector,
+    type_filter: Option<i16>,
+) -> Result<Vec<String>, CommonResponseError> {
+    let conn = &mut db.get().unwrap();
+
+    let mut query = products::table
+        .into_boxed()
+        .filter(products::embedding.is_not_null())
+        .filter(products::embedding.l2_distance(embedding.clone()).lt(PRODUCT_SEARCH_L2_THRESHOLD))
+        .order(products::embedding.l2_distance(embedding))
         .limit(10)
         .select(products::name);
 
@@ -440,10 +465,9 @@ pub async fn get_products_list(
             return Ok(HttpResponse::Ok().json(response));
         }
 
-        // 2단계: LIKE 결과 없음 → 번역 + 임베딩 + 벡터 검색
-        let translated_name = crate::utils::translator::translate_to_english_if_cjk(&name_clone).await;
+        // 2단계: LIKE 결과 없음 → 이름 임베딩 벡터 검색
         // 검색어이므로 쿼리용 임베딩(search_query) 사용
-        let embedding = match crate::utils::openai::get_query_embedding(&translated_name).await {
+        let embedding = match crate::utils::openai::get_query_embedding(&name_clone).await {
             Ok(vec) => vec,
             Err(e) => {
                 error!("[Cohere Embedding Error] {}", e);
@@ -484,9 +508,8 @@ pub async fn get_favorite_products_list(
     let query_inner = query.into_inner();
     
     let embedding = if let Some(ref name) = query_inner.name {
-        let translated_name = crate::utils::translator::translate_to_english_if_cjk(name).await;
         // 검색어이므로 쿼리용 임베딩(search_query) 사용
-        match crate::utils::openai::get_query_embedding(&translated_name).await {
+        match crate::utils::openai::get_query_embedding(name).await {
             Ok(vec) => Some(vec),
             Err(e) => {
                 error!("[Cohere Embedding Error] {}", e);

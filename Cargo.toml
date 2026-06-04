@@ -27,7 +27,7 @@ env_logger = "0.11.7"
 log = "0.4.26"
 serde_json = "1.0.140"
 pgvector = { version = "0.3.3", features = ["diesel", "serde"] }
-tokio = { version = "1.49.0", features = ["fs"] }
+tokio = { version = "1.49.0", features = ["fs", "io-util", "macros"] }
 regex = "1.12.3"
 lazy_static = "1.5.0"
 base64 = "0.22.1"

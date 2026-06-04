@@ -4,6 +4,7 @@ mod db;
 mod models;
 mod schema;
 mod r2;
+mod cohere;
 mod jobs;
 
 use dotenvy::dotenv;
@@ -15,7 +16,7 @@ async fn main() {
 
     if args.len() < 2 {
         eprintln!("Usage: cargo run <command>");
-        eprintln!("Available commands: clean_image, add_product_with_json, backup_db");
+        eprintln!("Available commands: clean_image, add_product_with_json, backup_db, reembed_products");
         std::process::exit(1);
     }
 
@@ -38,6 +39,12 @@ async fn main() {
             println!("Starting 'backup_db' batch job...");
             jobs::backup_db::run().await;
             println!("Batch job 'backup_db' completed.");
+        }
+        "reembed_products" => {
+            println!("Starting 'reembed_products' batch job...");
+            let mut conn = db::establish_connection();
+            jobs::reembed_products::run(&mut conn).await;
+            println!("Batch job 'reembed_products' completed.");
         }
         _ => {
             eprintln!("Unknown command: {}", command);

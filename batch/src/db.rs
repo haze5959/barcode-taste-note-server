@@ -55,6 +55,26 @@ pub fn establish_connection() -> PgConnection {
 
 
 
+/// 임베딩이 비어 있는(NULL) product 의 (id, name) 목록 조회 — 재임베딩 백필 대상.
+/// embedding IS NULL 만 대상으로 하므로 중단 후 재실행해도 이어서 처리된다(멱등).
+pub fn get_products_without_embedding(conn: &mut PgConnection) -> QueryResult<Vec<(Uuid, String)>> {
+    products::dsl::products
+        .filter(products::dsl::embedding.is_null())
+        .select((products::dsl::id, products::dsl::name))
+        .load::<(Uuid, String)>(conn)
+}
+
+/// product 한 건의 임베딩 갱신
+pub fn update_product_embedding(
+    conn: &mut PgConnection,
+    pid: Uuid,
+    embedding: pgvector::Vector,
+) -> QueryResult<usize> {
+    diesel::update(products::dsl::products.find(pid))
+        .set(products::dsl::embedding.eq(Some(embedding)))
+        .execute(conn)
+}
+
 /// 동일 이름의 product가 있으면 product_id 반환
 pub fn product_exists_by_name(conn: &mut PgConnection, product_name: &str) -> Option<Uuid> {
     products::dsl::products
