@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async-openai = "0.26.0"
 chrono = "0.4"
 diesel = { version = "2", features = ["postgres", "chrono", "uuid", "serde_json"] }
 dotenvy = "0.15"

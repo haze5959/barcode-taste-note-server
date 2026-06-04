@@ -19,6 +19,16 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use log::error;
 
+/// 제품명 벡터 검색의 L2 거리 임계값 (이 값 미만이면 유사 제품으로 간주).
+///
+/// Cohere embed-multilingual-light-v3.0(정규화 벡터)으로 실측한 제품명 거리 분포:
+///   - 동일 제품 매칭:  L2 0.80 ~ 0.98 (평균 0.91)
+///   - 서로 다른 제품:  L2 1.14 ~ 1.38 (평균 1.27)
+/// 두 분포 사이(중간점 ≈ 1.06)에 위치한 1.05를 컷오프로 사용한다.
+/// (정규화 벡터이므로 L2 = sqrt(2 - 2·cos), 1.05 ≈ 코사인 유사도 0.45)
+/// 운영 데이터 분포에 따라 추후 보정 가능.
+const PRODUCT_SEARCH_L2_THRESHOLD: f64 = 1.05;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProductParams {
     pub name: String,
@@ -152,7 +162,7 @@ pub async fn create_product(
     let embedding = match crate::utils::openai::get_embedding(&item_inner.name).await {
         Ok(vec) => Some(vec),
         Err(e) => {
-            error!("[OpenAI Embedding Error] {}", e);
+            error!("[Cohere Embedding Error] {}", e);
             None
         }
     };
@@ -208,7 +218,7 @@ pub async fn create_product_by_ai(
     let embedding = match crate::utils::openai::get_embedding(&ai_result.name).await {
         Ok(vec) => Some(vec),
         Err(e) => {
-            error!("[OpenAI Embedding Error For AI Model] {}", e);
+            error!("[Cohere Embedding Error For AI Model] {}", e);
             None
         }
     };
@@ -432,10 +442,11 @@ pub async fn get_products_list(
 
         // 2단계: LIKE 결과 없음 → 번역 + 임베딩 + 벡터 검색
         let translated_name = crate::utils::translator::translate_to_english_if_cjk(&name_clone).await;
-        let embedding = match crate::utils::openai::get_embedding(&translated_name).await {
+        // 검색어이므로 쿼리용 임베딩(search_query) 사용
+        let embedding = match crate::utils::openai::get_query_embedding(&translated_name).await {
             Ok(vec) => vec,
             Err(e) => {
-                error!("[OpenAI Embedding Error] {}", e);
+                error!("[Cohere Embedding Error] {}", e);
                 let response = CommonResponse { result: true, data: Vec::<ProductListItem>::new(), error: None };
                 return Ok(HttpResponse::Ok().json(response));
             }
@@ -474,10 +485,11 @@ pub async fn get_favorite_products_list(
     
     let embedding = if let Some(ref name) = query_inner.name {
         let translated_name = crate::utils::translator::translate_to_english_if_cjk(name).await;
-        match crate::utils::openai::get_embedding(&translated_name).await {
+        // 검색어이므로 쿼리용 임베딩(search_query) 사용
+        match crate::utils::openai::get_query_embedding(&translated_name).await {
             Ok(vec) => Some(vec),
             Err(e) => {
-                error!("[OpenAI Embedding Error] {}", e);
+                error!("[Cohere Embedding Error] {}", e);
                 None
             }
         }
@@ -876,7 +888,7 @@ fn db_search_products_by_vector(
     let mut vec_query = products::table
         .into_boxed()
         .filter(products::embedding.is_not_null())
-        .filter(products::embedding.l2_distance(embedding.clone()).lt(0.9))
+        .filter(products::embedding.l2_distance(embedding.clone()).lt(PRODUCT_SEARCH_L2_THRESHOLD))
         .order(products::embedding.l2_distance(embedding));
 
     if let Some(type_filter) = query.type_ {
@@ -1129,7 +1141,7 @@ fn db_get_favorite_products_by_user_id(
     // 이름 임베딩 값이 있으면 거리 순 정렬
     if let Some(emb) = embedding {
         products_query = products_query.filter(products::embedding.is_not_null());
-        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(0.9));
+        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(PRODUCT_SEARCH_L2_THRESHOLD));
         products_query = products_query.order(products::embedding.l2_distance(emb));
     }
 
