@@ -2,8 +2,8 @@ use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use std::env;
 
-/// Cohere 임베딩 모델 (런타임과 동일하게 다국어 light, 384차원)
-const COHERE_MODEL: &str = "embed-multilingual-light-v3.0";
+/// Cohere 임베딩 모델 (런타임과 동일하게 다국어, 1024차원)
+const COHERE_MODEL: &str = "embed-multilingual-v3.0";
 /// Cohere Embed v2 API 엔드포인트
 const COHERE_EMBED_URL: &str = "https://api.cohere.com/v2/embed";
 
@@ -58,6 +58,6 @@ pub async fn embed_documents(
 
     let body: CohereEmbedResponse = res.json().await?;
 
-    // embed-multilingual-light-v3.0 은 항목별 384차원 f32 벡터를 반환한다.
+    // embed-multilingual-v3.0 은 항목별 1024차원 f32 벡터를 반환한다.
     Ok(body.embeddings.float.into_iter().map(Vector::from).collect())
 }

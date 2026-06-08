@@ -12,7 +12,7 @@ const SLEEP_BETWEEN_CALLS_SECS: u64 = 60;
 /// - embedding 이 NULL 인 product 만 대상으로 하므로 중단 후 재실행해도 이어서 처리된다.
 /// - 제품명을 96개씩 묶어 Cohere Embed(search_document)를 1회 호출하고, 호출 간 60초 대기한다.
 pub async fn run(conn: &mut PgConnection) {
-    println!("[reembed_products] 시작 (모델: embed-multilingual-light-v3.0, float 384차원)");
+    println!("[reembed_products] 시작 (모델: embed-multilingual-v3.0, float 1024차원)");
 
     // 1. 임베딩이 비어 있는 product 조회
     let targets = match db::get_products_without_embedding(conn) {

@@ -79,6 +79,7 @@ async fn main() -> std::io::Result<()> {
             .route("/btn/home", web::get().to(handlers::btn_app_handlers::get_home_info))
             // Webhooks
             .route("/webhooks/appstore", web::post().to(handlers::webhook_handlers::handle_appstore_notification))
+            .route("/webhooks/playstore", web::post().to(handlers::webhook_handlers::handle_playstore_notification))
             // Authenticated routes
             .service(
                 web::scope("api")

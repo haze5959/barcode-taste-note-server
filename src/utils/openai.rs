@@ -2,8 +2,8 @@ use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use std::env;
 
-/// Cohere 임베딩 모델 (다국어 light, 384차원 벡터 반환 — 짧은 제품명 검색에 적합)
-const COHERE_MODEL: &str = "embed-multilingual-light-v3.0";
+/// Cohere 임베딩 모델 (다국어, 1024차원 벡터 반환 — 한글↔영문 교차언어 검색 품질 우선)
+const COHERE_MODEL: &str = "embed-multilingual-v3.0";
 /// Cohere Embed v2 API 엔드포인트
 const COHERE_EMBED_URL: &str = "https://api.cohere.com/v2/embed";
 
@@ -72,7 +72,7 @@ async fn request_embedding(
 
     let body: CohereEmbedResponse = res.json().await?;
 
-    // embed-multilingual-light-v3.0 은 384차원 f32 벡터를 반환한다.
+    // embed-multilingual-v3.0 은 1024차원 f32 벡터를 반환한다.
     let embedding = body
         .embeddings
         .float

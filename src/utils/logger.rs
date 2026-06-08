@@ -10,6 +10,9 @@ use log::error;
 use tokio::io::{AsyncBufReadExt, BufReader, AsyncWriteExt};
 use tokio::fs::OpenOptions;
 use std::str;
+use lazy_static::lazy_static;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 pub fn print_response_model<T: Debug>(model: &CommonResponse<T>) {
     println!("[Model]: {:?}", model);
@@ -83,6 +86,22 @@ pub async fn log_gemini_request(is_success: bool, image_id_str: &str, log_text: 
     }
 }
 
+/// 바코드 검색 실패 메일 발송 간격: 마지막 발송 후 이 시간이 지나야 다시 보낸다.
+const BARCODE_FAILURE_MAIL_INTERVAL: Duration = Duration::from_secs(600); // 10분
+
+/// 실패 메일 throttle 전역 상태
+struct BarcodeFailureMailState {
+    /// 마지막으로 메일을 발송한 시각 (None = 아직 한 번도 발송 안 함)
+    last_sent_at: Option<Instant>,
+    /// 아직 보내지 않고 쌓아둔 실패 목록 (barcode, product_name)
+    pending: Vec<(String, String)>,
+}
+
+lazy_static! {
+    static ref BARCODE_FAILURE_MAIL: Mutex<BarcodeFailureMailState> =
+        Mutex::new(BarcodeFailureMailState { last_sent_at: None, pending: Vec::new() });
+}
+
 pub async fn log_barcode_request(is_success: bool, barcode: &str, product_name: Option<&str>) {
     let now = chrono::Local::now();
     let time_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
@@ -103,5 +122,55 @@ pub async fn log_barcode_request(is_success: bool, barcode: &str, product_name: 
             format!("{} : {}\n", time_str, barcode)
         };
         let _ = file.write_all(log_line.as_bytes()).await;
+    }
+
+    // 바코드 검색 실패 시 운영자에게 메일 알림.
+    // 마지막 발송 후 10분이 지나야 보내며, 그 전에 들어온 실패는 버퍼에 쌓아두었다가
+    // 10분 경과 후 들어온 실패에서 한 번에 모아 보낸다. (webhook_handlers.rs의 `mail` 전송 방식 참고)
+    if !is_success {
+        // 락은 버퍼 갱신/발송 여부 판단만 짧게 잡고, 블로킹 메일 전송 전에 해제한다.
+        let to_send: Option<Vec<(String, String)>> = {
+            let mut state = match BARCODE_FAILURE_MAIL.lock() {
+                Ok(s) => s,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            state.pending.push((barcode.to_string(), product_name.unwrap_or("(없음)").to_string()));
+
+            let should_send = match state.last_sent_at {
+                None => true, // 첫 실패는 즉시 발송
+                Some(t) => t.elapsed() >= BARCODE_FAILURE_MAIL_INTERVAL,
+            };
+
+            if should_send {
+                state.last_sent_at = Some(Instant::now());
+                Some(std::mem::take(&mut state.pending)) // 쌓인 실패 전부 비우면서 가져옴
+            } else {
+                None // 아직 10분 미경과 → 누적만 하고 발송 보류
+            }
+        };
+
+        if let Some(failures) = to_send {
+            // `mail` 실행 + wait는 블로킹이므로 별도 스레드에서 처리해 async 실행기를 막지 않는다
+            std::thread::spawn(move || {
+                let mut email_body = format!("바코드 검색 실패 {}건 (최근 10분 누적) ❌\n\n", failures.len());
+                for (i, (bc, pn)) in failures.iter().enumerate() {
+                    email_body.push_str(&format!("{}. barcode: {} / product_name: {}\n", i + 1, bc, pn));
+                }
+                let subject = format!("[Barnote] 바코드 검색 실패 {}건", failures.len());
+                if let Ok(mut child) = std::process::Command::new("mail")
+                    .arg("-s")
+                    .arg(&subject)
+                    .arg("barcodetastenote@gmail.com")
+                    .stdin(std::process::Stdio::piped())
+                    .spawn()
+                {
+                    use std::io::Write;
+                    if let Some(mut stdin) = child.stdin.take() {
+                        let _ = stdin.write_all(email_body.as_bytes());
+                    }
+                    let _ = child.wait();
+                }
+            });
+        }
     }
 }
