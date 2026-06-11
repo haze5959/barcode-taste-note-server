@@ -19,7 +19,7 @@ use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use uuid::Uuid;
-use log::error;
+use log::{error, info};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdminProductMainImageResponse {
@@ -945,6 +945,83 @@ pub async fn delete_admin_barcode(
             .map_err(handler_disel_error)
     })
     .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: GET /admin/deleted/images
+// ============================================
+
+/// clean_image 배치(고아 이미지 → R2 deleted/images/ 이동)를 실행한 뒤,
+/// R2 의 deleted/images/ 경로에 쌓인 파일명(UUID) 목록을 반환한다.
+pub async fn get_admin_deleted_images(
+    req: HttpRequest,
+    r2: web::Data<R2Client>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    // 1. 고아 이미지 정리 배치 실행 (자식 프로세스 대기는 블로킹이므로 web::block 에서 수행)
+    let output = web::block(|| {
+        std::process::Command::new("./deploy_bin/barnote_batch")
+            .arg("clean_image")
+            .output()
+    })
+    .await?
+    .map_err(|e| {
+        error!("[Admin] clean_image 실행 실패: {}", e);
+        CommonResponseError::InternalServerError
+    })?;
+
+    if !output.status.success() {
+        error!(
+            "[Admin] clean_image 비정상 종료 (code={:?}): {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(CommonResponseError::InternalServerError.into());
+    }
+    info!("[Admin] clean_image 완료: {}", String::from_utf8_lossy(&output.stdout).trim());
+
+    // 2. R2 deleted/images/ 경로의 파일명(UUID) 목록 조회
+    let prefix = "deleted/images/";
+    let keys = r2.list_keys(prefix).await?;
+    let names: Vec<String> = keys
+        .iter()
+        .filter_map(|key| key.strip_prefix(prefix))
+        .filter(|name| !name.is_empty())
+        .map(|name| name.to_string())
+        .collect();
+
+    let response = CommonResponse {
+        result: true,
+        data: names,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: DELETE /admin/deleted/images
+// ============================================
+
+/// R2 의 deleted/images/ 경로에 보관 중인 이미지를 전부 삭제한다(영구 삭제).
+pub async fn delete_admin_deleted_images(
+    req: HttpRequest,
+    r2: web::Data<R2Client>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let keys = r2.list_keys("deleted/images/").await?;
+    if !keys.is_empty() {
+        r2.delete_keys(&keys).await?;
+    }
+    info!("[Admin] deleted/images 비우기 완료: {}건 삭제", keys.len());
 
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,

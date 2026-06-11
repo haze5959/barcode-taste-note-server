@@ -16,7 +16,7 @@ async fn main() {
 
     if args.len() < 2 {
         eprintln!("Usage: cargo run <command>");
-        eprintln!("Available commands: clean_image, add_product_with_json, backup_db, reembed_products");
+        eprintln!("Available commands: clean_image, add_product_with_json, backup_db, backup_image, reembed_products");
         std::process::exit(1);
     }
 
@@ -39,6 +39,11 @@ async fn main() {
             println!("Starting 'backup_db' batch job...");
             jobs::backup_db::run().await;
             println!("Batch job 'backup_db' completed.");
+        }
+        "backup_image" => {
+            println!("Starting 'backup_image' batch job...");
+            jobs::backup_image::run().await;
+            println!("Batch job 'backup_image' completed.");
         }
         "reembed_products" => {
             println!("Starting 'reembed_products' batch job...");

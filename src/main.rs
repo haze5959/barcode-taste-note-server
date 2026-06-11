@@ -138,6 +138,8 @@ async fn main() -> std::io::Result<()> {
                             .route("/image", web::post().to(handlers::admin_handlers::upload_admin_image))
                             .route("/image/url", web::post().to(handlers::admin_handlers::upload_admin_image_by_url))
                             .route("/images/{id}", web::delete().to(handlers::admin_handlers::delete_admin_image))
+                            .route("/deleted/images", web::get().to(handlers::admin_handlers::get_admin_deleted_images))
+                            .route("/deleted/images", web::delete().to(handlers::admin_handlers::delete_admin_deleted_images))
                             .route("/barcode", web::put().to(handlers::admin_handlers::update_admin_barcode))
                             .route("/barcode", web::post().to(handlers::admin_handlers::add_admin_barcode))
                             .route("/barcode/{barcode_id}", web::delete().to(handlers::admin_handlers::delete_admin_barcode))

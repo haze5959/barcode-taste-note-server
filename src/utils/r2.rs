@@ -93,6 +93,74 @@ impl R2Client {
         Ok(())
     }
 
+    /// 여러 객체를 일괄 삭제합니다. (S3 DeleteObjects — 한 번에 최대 1,000개씩 나눠 처리)
+    pub async fn delete_keys(&self, keys: &[String]) -> Result<(), CommonResponseError> {
+        use aws_sdk_s3::types::{Delete, ObjectIdentifier};
+
+        for chunk in keys.chunks(1000) {
+            let objects: Vec<ObjectIdentifier> = chunk
+                .iter()
+                .map(|key| {
+                    ObjectIdentifier::builder().key(key).build().map_err(|e| {
+                        error!("[R2 Batch Delete Error] key {}: {:?}", key, e);
+                        CommonResponseError::InternalServerError
+                    })
+                })
+                .collect::<Result<_, _>>()?;
+
+            let delete = Delete::builder().set_objects(Some(objects)).build().map_err(|e| {
+                error!("[R2 Batch Delete Error] Delete build: {:?}", e);
+                CommonResponseError::InternalServerError
+            })?;
+
+            self.client
+                .delete_objects()
+                .bucket(&self.bucket)
+                .delete(delete)
+                .send()
+                .await
+                .map_err(|e| {
+                    error!("[R2 Batch Delete Error] {:?}", e);
+                    CommonResponseError::InternalServerError
+                })?;
+        }
+
+        Ok(())
+    }
+
+    /// 지정한 prefix 하위의 모든 객체 key 목록을 반환합니다.
+    /// (한 번에 최대 1,000개씩 내려오므로 continuation token으로 전체 페이지를 순회한다)
+    pub async fn list_keys(&self, prefix: &str) -> Result<Vec<String>, CommonResponseError> {
+        let mut keys = Vec::new();
+        let mut continuation_token: Option<String> = None;
+
+        loop {
+            let mut request = self.client
+                .list_objects_v2()
+                .bucket(&self.bucket)
+                .prefix(prefix);
+            if let Some(token) = &continuation_token {
+                request = request.continuation_token(token);
+            }
+
+            let output = request.send().await.map_err(|e| {
+                error!("[R2 List Error] {}: {:?}", prefix, e);
+                CommonResponseError::InternalServerError
+            })?;
+
+            if let Some(contents) = output.contents {
+                keys.extend(contents.into_iter().filter_map(|obj| obj.key));
+            }
+
+            continuation_token = output.next_continuation_token;
+            if continuation_token.is_none() {
+                break;
+            }
+        }
+
+        Ok(keys)
+    }
+
     /// R2에서 이미지를 가져옵니다.
     pub async fn get_image(&self, key: &str) -> Result<Vec<u8>, CommonResponseError> {
         let output = self.client

@@ -3,6 +3,8 @@ static/*
 ssl/*
 logs/*
 deploy_bin/*
+backup/*
+batch/backup/*
 crawler/target/*
 .env
 package.json
