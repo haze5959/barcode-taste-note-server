@@ -138,37 +138,37 @@ cargo run -p batch -- backup_image
 
 **작동 방식 (`What it does`)**
 1. R2(`barnote` 버킷)의 `images/` 경로에 있는 **모든 파일 목록**을 조회합니다.
-2. 실행한 날짜 기준으로 로컬 백업 폴더를 생성합니다. (예: 2026년 6월 11일 → `backup/260611`)
-3. 각 파일을 순차 다운로드하여 백업 폴더에 저장합니다. (파일명은 R2와 동일한 UUID 형식)
-4. **같은 날 재실행하면 이미 받아둔 파일은 스킵**하므로, 중간에 중단되어도 이어서 백업할 수 있습니다.
-5. 백업 폴더 위치는 **명령어를 실행한 디렉토리 기준 상대 경로**입니다.
+2. 로컬 `backup/` 폴더에 각 파일을 순차 다운로드하여 저장합니다. (파일명은 R2와 동일한 UUID 형식, `images/profile/` 같은 하위 경로도 동일 구조로 보존)
+3. **실행할 때마다 같은 `backup/` 폴더가 갱신됩니다** — 이미 받아둔 파일은 스킵하고 새로 추가된 파일만 다운로드합니다. 중간에 중단되어도 재실행하면 이어서 백업합니다.
+4. 백업 폴더 위치는 **명령어를 실행한 디렉토리 기준 상대 경로**입니다.
 
 **로그 예시:**
 ```
 === Image Backup Job 시작 ===
-백업 위치: backup/260611
+백업 위치: backup
 총 4230개 파일 백업 시작
 진행 100/4230 (다운로드 100, 스킵 0, 실패 0)
 ...
 === Image Backup Job 완료 ===
-백업 위치: backup/260611 (다운로드 4230, 스킵 0, 실패 0)
+백업 위치: backup (다운로드 130, 스킵 4100, 실패 0)
 ```
 
 ---
 
 ## 📅 일일 자동화 작업 (Scheduled Jobs)
 
-매일 정기적으로 수행해야 하는 작업들(`crawler` 실행 및 `backup_db`)을 자동화하기 위해 크론탭(crontab)을 사용할 수 있습니다.
+매일 정기적으로 수행해야 하는 작업들(`backup_db`, `backup_image` 등)을 자동화하기 위해 크론탭(crontab)을 사용할 수 있습니다.
 
 ### 1. 전용 스케줄링 스크립트
-작업의 순차 실행 및 실패 시 알림을 위해 전용 스크립트(`batch/scripts/daily_job.sh`)를 제공합니다.
+작업의 순차 실행 및 실패 시 알림을 위해 전용 스크립트(프로젝트 루트의 `daily_job.sh`)를 제공합니다.
 
-- **위치:** `batch/scripts/daily_job.sh`
-- **담당 작업:**
-    1. `cargo run -p crawler` 실행 (신규 상품 정보 수집)
-    2. `cargo run -p batch -- backup_db` 실행 (DB 상태 및 백업 관리)
-    3. **알림:** 작업 중 하나라도 실패(Exit Code != 0)하면 `barcodetastenote@gmail.com`으로 실패 레포트를 메일로 발송합니다.
-- **로그 저장:** 작업 상세 내역은 `batch/daily_job.log` 파일에 기록됩니다.
+- **위치:** `daily_job.sh` (프로젝트 루트)
+- **담당 작업:** (배포 바이너리 `deploy_bin/barnote_batch` 사용)
+    1. `barnote_batch backup_db` 실행 (DB 백업 후 원격 업로드)
+    2. `barnote_batch backup_image` 실행 (R2 이미지 → 로컬 `backup/` 폴더 갱신)
+    3. 크롤러 실행은 현재 스크립트에서 주석 처리되어 있습니다 (필요 시 해제)
+    4. **알림:** 작업 중 하나라도 실패(Exit Code != 0)하면 `barcodetastenote@gmail.com`으로 실패 레포트를 메일로 발송합니다.
+- **로그 저장:** 작업 상세 내역은 `deploy_bin/daily_job.log` 파일에 기록됩니다.
 
 ### 2. 크론탭(Crontab) 설정
 매일 **오전 7시**에 해당 스크립트가 실행되도록 설정하는 방법입니다.
@@ -177,7 +177,7 @@ cargo run -p batch -- backup_image
 
 ```bash
 # 매일 오전 7시 00분에 Barnote 일일 통합 작업 실행
-0 7 * * * /Users/ogyukwon/Documents/Projects/BarcodeTasteNoteServer/batch/scripts/daily_job.sh
+0 7 * * * /Users/ogyukwon/Documents/Projects/BarcodeTasteNoteServer/daily_job.sh
 ```
 
 > **주의:** 스크립트 경로는 실제 환경의 절대 경로로 수정하여 사용해야 합니다.

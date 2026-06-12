@@ -42,8 +42,12 @@ async fn main() {
         }
         "backup_image" => {
             println!("Starting 'backup_image' batch job...");
-            jobs::backup_image::run().await;
+            let success = jobs::backup_image::run().await;
             println!("Batch job 'backup_image' completed.");
+            // 실패 시 비정상 종료코드 반환 → daily_job.sh 의 실패 알림이 동작하도록
+            if !success {
+                std::process::exit(1);
+            }
         }
         "reembed_products" => {
             println!("Starting 'reembed_products' batch job...");

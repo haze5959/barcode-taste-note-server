@@ -4,21 +4,22 @@ use std::path::Path;
 /// R2 의 images/ 경로 prefix
 const IMAGES_PREFIX: &str = "images/";
 
-/// R2 images/ 경로의 모든 파일을 로컬 backup/{YYMMDD}/ 폴더에 백업한다.
-/// - 백업 폴더는 실행 시점 날짜로 생성된다 (예: backup/260611)
-/// - 같은 날 재실행 시 이미 받아둔 파일은 건너뛰므로 중단 후 이어서 백업할 수 있다(멱등)
-pub async fn run() {
+/// R2 images/ 경로의 모든 파일을 로컬 backup/ 폴더에 백업한다.
+/// - 실행할 때마다 같은 backup/ 폴더가 갱신된다
+///   (이미 받아둔 파일은 스킵하고 새로 추가된 파일만 다운로드)
+/// - 중단 후 재실행해도 받은 데까지 건너뛰고 이어서 백업한다(멱등)
+/// - 반환값: 전부 성공하면 true, 하나라도 실패하면 false (스케줄러의 종료코드/알림용)
+pub async fn run() -> bool {
     let r2 = R2Client::new().await;
 
-    let date_str = chrono::Local::now().format("%y%m%d").to_string();
-    let backup_dir = format!("backup/{}", date_str);
+    let backup_dir = "backup";
 
     println!("=== Image Backup Job 시작 ===");
     println!("백업 위치: {}", backup_dir);
 
-    if let Err(e) = std::fs::create_dir_all(&backup_dir) {
+    if let Err(e) = std::fs::create_dir_all(backup_dir) {
         eprintln!("백업 폴더 생성 실패 ({}): {}", backup_dir, e);
-        return;
+        return false;
     }
 
     // 1. R2 images/ 경로 전체 key 목록 조회
@@ -26,14 +27,14 @@ pub async fn run() {
         Ok(k) => k,
         Err(e) => {
             eprintln!("R2 목록 조회 실패: {}", e);
-            return;
+            return false;
         }
     };
 
     let total = keys.len();
     if total == 0 {
         println!("백업할 이미지가 없습니다. 종료.");
-        return;
+        return true;
     }
     println!("총 {}개 파일 백업 시작", total);
 
@@ -82,4 +83,6 @@ pub async fn run() {
 
     println!("=== Image Backup Job 완료 ===");
     println!("백업 위치: {} (다운로드 {}, 스킵 {}, 실패 {})", backup_dir, downloaded, skipped, failed);
+
+    failed == 0
 }

@@ -39,6 +39,10 @@ pub struct TransactionInfo {
     pub expires_date: Option<i64>,
     #[serde(rename = "purchaseDate")]
     pub purchase_date: Option<i64>,
+    /// 앱에서 구매 시 넣은 appAccountToken(=user_id).
+    /// 주의: data 객체가 아니라 signedTransactionInfo(JWS) 페이로드 안에 들어있다.
+    #[serde(rename = "appAccountToken")]
+    pub app_account_token: Option<Uuid>,
 }
 
 /// Helper to decode JWS payload without signature verification
@@ -73,17 +77,23 @@ pub async fn handle_appstore_notification(
         None => return Ok(HttpResponse::Ok().finish()),
     };
 
-    let user_id = match data.app_account_token {
-        Some(uid) => uid,
-        None => {
-            info!("Notification skipped: No appAccountToken (user_id) found");
-            return Ok(HttpResponse::Ok().finish());
-        }
-    };
-
+    // 트랜잭션 정보(JWS)를 먼저 디코드한다 — appAccountToken 이 이 안에 들어있다
     let tx_info: Option<TransactionInfo> = data.signed_transaction_info
         .as_ref()
         .and_then(|info_str| decode_unverified(info_str));
+
+    // appAccountToken(=user_id)은 data 객체가 아니라 signedTransactionInfo 페이로드에서 추출
+    let user_id = match tx_info
+        .as_ref()
+        .and_then(|tx| tx.app_account_token)
+        .or(data.app_account_token)
+    {
+        Some(uid) => uid,
+        None => {
+            info!("Notification skipped: No appAccountToken (user_id) found in transaction info");
+            return Ok(HttpResponse::Ok().finish());
+        }
+    };
 
     let _ = web::block(move || {
         let conn = &mut db.get().unwrap();
