@@ -33,6 +33,8 @@ pub struct AddUserParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchUserQuery {
     pub nick_name: Option<String>,
+    // 클라이언트는 `index`로 페이지 번호를 보낸다. `page`/`index` 둘 다 허용.
+    #[serde(alias = "index")]
     pub page: Option<i64>,
     pub per: Option<i64>,
 }

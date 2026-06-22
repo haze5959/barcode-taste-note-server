@@ -1009,6 +1009,16 @@ async fn process_get_product_by_barcode(
             Ok(HttpResponse::Ok().json(response))
         }
         Err(crate::errors::CommonResponseError::RecordNotFound) => {
+            // 이미 스크래핑 실패 이력이 있는 바코드면, 재시도하지 않고 실패 횟수만 +1 후 실패 응답
+            if crate::utils::logger::check_and_increment_fail_barcode(&barcode_str) {
+                let response: CommonResponse<Option<()>> = CommonResponse {
+                    result: false,
+                    data: None,
+                    error: Some(crate::errors::CommonResponseError::RecordNotFound as u8),
+                };
+                return Ok(HttpResponse::Ok().json(response));
+            }
+
             if let Some(scraped) = crate::utils::scraper::scrape_barcode_lookup(&barcode_str).await {
                 crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&scraped.name)).await;
                 // 1. Download image if exists
@@ -1095,6 +1105,8 @@ async fn process_get_product_by_barcode(
                     }
                 }
             } else {
+                // 스크래핑까지 실패 → 실패 바코드 목록에 신규 추가 (다음 요청부터는 스크래핑 생략)
+                crate::utils::logger::record_fail_barcode(&barcode_str);
                 crate::utils::logger::log_barcode_request(false, &barcode_str, None).await;
                 let response: CommonResponse<Option<()>> = CommonResponse {
                     result: false,

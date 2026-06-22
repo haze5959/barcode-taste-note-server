@@ -10,6 +10,7 @@ use log::error;
 use tokio::io::{AsyncBufReadExt, BufReader, AsyncWriteExt};
 use tokio::fs::OpenOptions;
 use std::str;
+use std::collections::HashMap;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -173,4 +174,55 @@ pub async fn log_barcode_request(is_success: bool, barcode: &str, product_name: 
             });
         }
     }
+}
+
+// ============================================================
+// 스크래핑 실패 바코드 추적 (logs/fail_barcodes.json)
+// 포맷: { "<barcode>": <실패 횟수>, ... }
+// ============================================================
+
+const FAIL_BARCODES_PATH: &str = "logs/fail_barcodes.json";
+
+lazy_static! {
+    /// fail_barcodes.json 동시 접근(읽기-수정-쓰기) 직렬화용 락
+    static ref FAIL_BARCODES_LOCK: Mutex<()> = Mutex::new(());
+}
+
+/// fail_barcodes.json 을 읽어 맵으로 반환 (파일이 없거나 깨졌으면 빈 맵)
+fn read_fail_barcodes() -> HashMap<String, i64> {
+    std::fs::read_to_string(FAIL_BARCODES_PATH)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// 맵을 fail_barcodes.json 으로 저장
+fn write_fail_barcodes(map: &HashMap<String, i64>) {
+    let _ = std::fs::create_dir_all("logs");
+    if let Ok(json) = serde_json::to_string_pretty(map) {
+        let _ = std::fs::write(FAIL_BARCODES_PATH, json);
+    }
+}
+
+/// 바코드가 실패 목록에 이미 있으면 실패 횟수를 +1 하고 true 를 반환한다(=스크래핑 생략, 실패 응답).
+/// 없으면 아무것도 바꾸지 않고 false 를 반환한다(=스크래핑 시도).
+pub fn check_and_increment_fail_barcode(barcode: &str) -> bool {
+    let _guard = FAIL_BARCODES_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let mut map = read_fail_barcodes();
+    match map.get_mut(barcode) {
+        Some(count) => {
+            *count += 1;
+            write_fail_barcodes(&map);
+            true
+        }
+        None => false,
+    }
+}
+
+/// 스크래핑까지 실패한 바코드를 실패 목록에 신규 추가한다(횟수 1, 이미 있으면 +1).
+pub fn record_fail_barcode(barcode: &str) {
+    let _guard = FAIL_BARCODES_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let mut map = read_fail_barcodes();
+    *map.entry(barcode.to_string()).or_insert(0) += 1;
+    write_fail_barcodes(&map);
 }

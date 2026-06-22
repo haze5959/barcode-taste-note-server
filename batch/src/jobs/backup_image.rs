@@ -43,7 +43,7 @@ pub async fn run() -> bool {
     let mut failed = 0usize;
 
     // 2. 파일별 다운로드 → 로컬 저장
-    for (index, key) in keys.iter().enumerate() {
+    for key in keys.iter() {
         // key 에서 images/ prefix 를 떼어 상대 경로로 사용 (images/profile/{uuid} 같은 하위 경로 포함)
         // 끝이 '/' 인 key 는 폴더 마커이므로 건너뛴다
         let file_name = match key.strip_prefix(IMAGES_PREFIX) {
@@ -73,11 +73,6 @@ pub async fn run() -> bool {
                     failed += 1;
                 }
             }
-        }
-
-        // 진행 상황 출력 (100개 단위)
-        if (index + 1) % 100 == 0 || index + 1 == total {
-            println!("진행 {}/{} (다운로드 {}, 스킵 {}, 실패 {})", index + 1, total, downloaded, skipped, failed);
         }
     }
 

@@ -839,7 +839,6 @@ fn db_update_product_stats(
     let note_count_from_db: i64 = notes::table
         .filter(notes::product_id.eq(product_id))
         .filter(notes::rating.ne(0))
-        .filter(notes::public_scope.ne(0))
         .count()
         .get_result::<i64>(conn)
         .map_err(handler_disel_error)?;
@@ -848,7 +847,6 @@ fn db_update_product_stats(
     let rating_sum: i64 = notes::table
         .filter(notes::product_id.eq(product_id))
         .filter(notes::rating.ne(0))
-        .filter(notes::public_scope.ne(0))
         .select(diesel::dsl::sum(notes::rating))
         .first::<Option<i64>>(conn)
         .map_err(handler_disel_error)?
