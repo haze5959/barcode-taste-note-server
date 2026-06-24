@@ -13,7 +13,7 @@ use std::str;
 use std::collections::HashMap;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub fn print_response_model<T: Debug>(model: &CommonResponse<T>) {
     println!("[Model]: {:?}", model);
@@ -87,20 +87,79 @@ pub async fn log_gemini_request(is_success: bool, image_id_str: &str, log_text: 
     }
 }
 
-/// 바코드 검색 실패 메일 발송 간격: 마지막 발송 후 이 시간이 지나야 다시 보낸다.
-const BARCODE_FAILURE_MAIL_INTERVAL: Duration = Duration::from_secs(600); // 10분
+/// 운영자 알림 메일 배치 간격: 첫 이벤트 시점부터 이 시간 동안 누적했다가,
+/// 첫 이벤트로부터 이 시간이 지나면 누적분을 한 번에 발송한다. (이후 이벤트로 타이머가 리셋되지 않음)
+const OPERATOR_MAIL_BATCH_INTERVAL: Duration = Duration::from_secs(600); // 10분
 
-/// 실패 메일 throttle 전역 상태
-struct BarcodeFailureMailState {
-    /// 마지막으로 메일을 발송한 시각 (None = 아직 한 번도 발송 안 함)
-    last_sent_at: Option<Instant>,
-    /// 아직 보내지 않고 쌓아둔 실패 목록 (barcode, product_name)
-    pending: Vec<(String, String)>,
+/// 운영자(barcodetastenote@gmail.com)에게 메일을 보내는 공통 함수.
+/// `mail` 명령 실행 + wait 는 블로킹이므로 별도 스레드에서 처리해 async 실행기를 막지 않는다.
+fn send_operator_mail(subject: String, body: String) {
+    std::thread::spawn(move || {
+        if let Ok(mut child) = std::process::Command::new("mail")
+            .arg("-s")
+            .arg(&subject)
+            .arg("barcodetastenote@gmail.com")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+        {
+            use std::io::Write;
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(body.as_bytes());
+            }
+            let _ = child.wait();
+        }
+    });
+}
+
+/// 메일 배치 공통 상태: 이벤트가 들어올 때마다 pending 에 누적한다.
+/// 첫 이벤트가 윈도우(타이머)를 열고, 첫 이벤트로부터 OPERATOR_MAIL_BATCH_INTERVAL 후 누적분을 flush 한다.
+struct MailBatchState<T> {
+    pending: T,
+    scheduled: bool, // 현재 배치 윈도우(타이머)가 열려 있는지
 }
 
 lazy_static! {
-    static ref BARCODE_FAILURE_MAIL: Mutex<BarcodeFailureMailState> =
-        Mutex::new(BarcodeFailureMailState { last_sent_at: None, pending: Vec::new() });
+    /// 바코드 검색 실패 누적 (barcode, product_name)
+    static ref BARCODE_FAILURE_MAIL: Mutex<MailBatchState<Vec<(String, String)>>> =
+        Mutex::new(MailBatchState { pending: Vec::new(), scheduled: false });
+
+    /// 신규 가입자 수 누적
+    static ref USER_REGISTER_MAIL: Mutex<MailBatchState<i64>> =
+        Mutex::new(MailBatchState { pending: 0, scheduled: false });
+}
+
+/// 이벤트 1건을 누적한다(add). 윈도우가 닫혀 있으면(=첫 이벤트면) 타이머를 띄워,
+/// 첫 이벤트로부터 OPERATOR_MAIL_BATCH_INTERVAL 후에 누적분으로 flush 를 호출한다.
+/// 윈도우가 이미 열려 있으면 누적만 하고 타이머는 리셋하지 않는다.
+fn record_batched_event<T, A, F>(lock: &'static Mutex<MailBatchState<T>>, add: A, flush: F)
+where
+    T: Default + Send + 'static,
+    A: FnOnce(&mut T),
+    F: Fn(T) + Send + 'static,
+{
+    let opened_window = {
+        let mut state = lock.lock().unwrap_or_else(|p| p.into_inner());
+        add(&mut state.pending);
+        if state.scheduled {
+            false // 이미 윈도우가 열려 있음 → 누적만
+        } else {
+            state.scheduled = true; // 첫 이벤트 → 윈도우 열기
+            true
+        }
+    };
+
+    if opened_window {
+        // 첫 이벤트 시점부터 INTERVAL 후 1회 발송 (이후 들어오는 이벤트로 타이머가 리셋되지 않음)
+        std::thread::spawn(move || {
+            std::thread::sleep(OPERATOR_MAIL_BATCH_INTERVAL);
+            let data = {
+                let mut state = lock.lock().unwrap_or_else(|p| p.into_inner());
+                state.scheduled = false;
+                std::mem::take(&mut state.pending)
+            };
+            flush(data);
+        });
+    }
 }
 
 pub async fn log_barcode_request(is_success: bool, barcode: &str, product_name: Option<&str>) {
@@ -125,55 +184,43 @@ pub async fn log_barcode_request(is_success: bool, barcode: &str, product_name: 
         let _ = file.write_all(log_line.as_bytes()).await;
     }
 
-    // 바코드 검색 실패 시 운영자에게 메일 알림.
-    // 마지막 발송 후 10분이 지나야 보내며, 그 전에 들어온 실패는 버퍼에 쌓아두었다가
-    // 10분 경과 후 들어온 실패에서 한 번에 모아 보낸다. (webhook_handlers.rs의 `mail` 전송 방식 참고)
+    // 바코드 검색 실패 시 운영자에게 메일 알림 (첫 실패 시점부터 일정 시간 누적 후 한 번에 발송)
     if !is_success {
-        // 락은 버퍼 갱신/발송 여부 판단만 짧게 잡고, 블로킹 메일 전송 전에 해제한다.
-        let to_send: Option<Vec<(String, String)>> = {
-            let mut state = match BARCODE_FAILURE_MAIL.lock() {
-                Ok(s) => s,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            state.pending.push((barcode.to_string(), product_name.unwrap_or("(없음)").to_string()));
-
-            let should_send = match state.last_sent_at {
-                None => true, // 첫 실패는 즉시 발송
-                Some(t) => t.elapsed() >= BARCODE_FAILURE_MAIL_INTERVAL,
-            };
-
-            if should_send {
-                state.last_sent_at = Some(Instant::now());
-                Some(std::mem::take(&mut state.pending)) // 쌓인 실패 전부 비우면서 가져옴
-            } else {
-                None // 아직 10분 미경과 → 누적만 하고 발송 보류
-            }
-        };
-
-        if let Some(failures) = to_send {
-            // `mail` 실행 + wait는 블로킹이므로 별도 스레드에서 처리해 async 실행기를 막지 않는다
-            std::thread::spawn(move || {
-                let mut email_body = format!("바코드 검색 실패 {}건 (최근 10분 누적) ❌\n\n", failures.len());
-                for (i, (bc, pn)) in failures.iter().enumerate() {
-                    email_body.push_str(&format!("{}. barcode: {} / product_name: {}\n", i + 1, bc, pn));
+        let bc = barcode.to_string();
+        let pn = product_name.unwrap_or("(없음)").to_string();
+        record_batched_event(
+            &BARCODE_FAILURE_MAIL,
+            move |pending: &mut Vec<(String, String)>| pending.push((bc, pn)),
+            |failures: Vec<(String, String)>| {
+                if failures.is_empty() {
+                    return;
                 }
-                let subject = format!("[Barnote] 바코드 검색 실패 {}건", failures.len());
-                if let Ok(mut child) = std::process::Command::new("mail")
-                    .arg("-s")
-                    .arg(&subject)
-                    .arg("barcodetastenote@gmail.com")
-                    .stdin(std::process::Stdio::piped())
-                    .spawn()
-                {
-                    use std::io::Write;
-                    if let Some(mut stdin) = child.stdin.take() {
-                        let _ = stdin.write_all(email_body.as_bytes());
-                    }
-                    let _ = child.wait();
+                let mins = OPERATOR_MAIL_BATCH_INTERVAL.as_secs() / 60;
+                let mut body = format!("바코드 검색 실패 {}건 (최근 {}분간 누적) ❌\n\n", failures.len(), mins);
+                for (i, (b, p)) in failures.iter().enumerate() {
+                    body.push_str(&format!("{}. barcode: {} / product_name: {}\n", i + 1, b, p));
                 }
-            });
-        }
+                send_operator_mail(format!("[Barnote] 바코드 검색 실패 {}건", failures.len()), body);
+            },
+        );
     }
+}
+
+/// 신규 가입 성공 시 호출한다. 운영자에게 가입 알림 메일을 첫 가입 시점 기준 배치로 보낸다.
+/// (첫 가입으로부터 OPERATOR_MAIL_BATCH_INTERVAL 동안 누적한 뒤, 그 시점까지의 가입자 수를 한 번에 발송)
+pub fn notify_user_registered() {
+    record_batched_event(
+        &USER_REGISTER_MAIL,
+        |count: &mut i64| *count += 1,
+        |count: i64| {
+            if count <= 0 {
+                return;
+            }
+            let mins = OPERATOR_MAIL_BATCH_INTERVAL.as_secs() / 60;
+            let body = format!("신규 가입자 {}명 🎉 (최근 {}분간 가입)", count, mins);
+            send_operator_mail(format!("[Barnote] 신규 가입자 {}명", count), body);
+        },
+    );
 }
 
 // ============================================================

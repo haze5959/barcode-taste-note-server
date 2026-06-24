@@ -698,6 +698,9 @@ pub(crate) fn register_user(
         .get_result::<User>(conn)
         .map_err(handler_disel_error)?;
 
+    // 신규 가입 성공 → 운영자에게 가입 알림 (10분 윈도우 동안 누적해 한 번에 발송)
+    crate::utils::logger::notify_user_registered();
+
     Ok(res)
 }
 
