@@ -6,6 +6,7 @@ use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 
 use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
+use std::io::Write;
 
 use barcode_taste_note::handlers;
 use barcode_taste_note::auth;
@@ -13,7 +14,23 @@ use barcode_taste_note::auth;
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok(); // Reads the .env file
-    env_logger::init();
+
+    // 로그 형식: 기본 "[날짜T시각Z LEVEL module]" 대신 "[시:분:초]" 만 (한국시간, UTC+9)
+    // RUST_LOG 필터는 그대로 적용. 날짜별 파일 분리는 logger.pl 이 system localtime 으로 처리.
+    env_logger::Builder::from_env(env_logger::Env::default())
+        .format(|buf, record| {
+            let kst = chrono::Utc::now()
+                .with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap());
+            let time = kst.format("%H:%M:%S");
+            // WARN·ERROR 만 레벨을 앞에 표시, INFO 이하는 시각만
+            match record.level() {
+                log::Level::Warn | log::Level::Error => {
+                    writeln!(buf, "[{}] [{}] {}", time, record.level(), record.args())
+                }
+                _ => writeln!(buf, "[{}] {}", time, record.args()),
+            }
+        })
+        .init();
 
     // Initialize rustls CryptoProvider (required for rustls 0.23+ when multiple/no default providers are present)
     let _ = rustls::crypto::ring::default_provider().install_default();
