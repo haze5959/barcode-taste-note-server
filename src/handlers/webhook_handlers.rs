@@ -125,21 +125,23 @@ pub async fn handle_appstore_notification(
                         .execute(conn)
                         .map_err(handler_disel_error)?;
                     info!("User {} premium extended to {:?}", user_id, expiry_date);
-                    
-                    // 이메일 전송 (mail 명령어 호출)
-                    let email_body = format!("구독자 도착 🎉\nuser_id: {}\nexpiry_date: {:?}", user_id, expiry_date);
-                    if let Ok(mut child) = std::process::Command::new("mail")
-                        .arg("-s")
-                        .arg("[Barnote] 새로운 프리미엄 구독 결제 발생")
-                        .arg("barcodetastenote@gmail.com")
-                        .stdin(std::process::Stdio::piped())
-                        .spawn()
-                    {
-                        use std::io::Write;
-                        if let Some(mut stdin) = child.stdin.take() {
-                            let _ = stdin.write_all(email_body.as_bytes());
+
+                    // 신규 구독(SUBSCRIBED)일 때만 메일 발송 (갱신 DID_RENEW 은 메일 생략)
+                    if decoded.notification_type == "SUBSCRIBED" {
+                        let email_body = format!("[App Store / iOS] 구독자 도착 🎉\nuser_id: {}\nexpiry_date: {:?}", user_id, expiry_date);
+                        if let Ok(mut child) = std::process::Command::new("mail")
+                            .arg("-s")
+                            .arg("[Barnote] 새로운 프리미엄 구독 결제 발생 (App Store / iOS)")
+                            .arg("barcodetastenote@gmail.com")
+                            .stdin(std::process::Stdio::piped())
+                            .spawn()
+                        {
+                            use std::io::Write;
+                            if let Some(mut stdin) = child.stdin.take() {
+                                let _ = stdin.write_all(email_body.as_bytes());
+                            }
+                            let _ = child.wait();
                         }
-                        let _ = child.wait();
                     }
                 }
             },
@@ -369,23 +371,25 @@ pub async fn handle_playstore_notification(
                         .map_err(handler_disel_error)?;
                     info!("User {} premium extended to {:?} (Play)", user_id, expiry_date);
 
-                    // 이메일 전송 (mail 명령어 호출) — appstore와 동일
-                    let email_body = format!(
-                        "구독자 도착 🎉 (Android)\nuser_id: {}\nsubscription_id: {}\nexpiry_date: {:?}",
-                        user_id, subscription_id, expiry_date
-                    );
-                    if let Ok(mut child) = std::process::Command::new("mail")
-                        .arg("-s")
-                        .arg("[Barnote] 새로운 프리미엄 구독 결제 발생 (Android)")
-                        .arg("barcodetastenote@gmail.com")
-                        .stdin(std::process::Stdio::piped())
-                        .spawn()
-                    {
-                        use std::io::Write;
-                        if let Some(mut stdin) = child.stdin.take() {
-                            let _ = stdin.write_all(email_body.as_bytes());
+                    // 신규 구매(PURCHASED=4)일 때만 메일 발송 (갱신/복구/재시작은 메일 생략)
+                    if notification_type == 4 {
+                        let email_body = format!(
+                            "[Play Store / Android] 구독자 도착 🎉\nuser_id: {}\nsubscription_id: {}\nexpiry_date: {:?}",
+                            user_id, subscription_id, expiry_date
+                        );
+                        if let Ok(mut child) = std::process::Command::new("mail")
+                            .arg("-s")
+                            .arg("[Barnote] 새로운 프리미엄 구독 결제 발생 (Play Store / Android)")
+                            .arg("barcodetastenote@gmail.com")
+                            .stdin(std::process::Stdio::piped())
+                            .spawn()
+                        {
+                            use std::io::Write;
+                            if let Some(mut stdin) = child.stdin.take() {
+                                let _ = stdin.write_all(email_body.as_bytes());
+                            }
+                            let _ = child.wait();
                         }
-                        let _ = child.wait();
                     }
                 } else {
                     info!("[PlayStore] 활성 노티지만 만료 시각 없음 user={}", user_id);
