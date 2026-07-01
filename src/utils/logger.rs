@@ -4,6 +4,7 @@ use crate::models::CommonResponse;
 use actix_web::http::header::HeaderMap;
 use actix_web::web::Bytes;
 use actix_web::{body::MessageBody, body::to_bytes, dev::ServiceResponse};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Debug;
 use log::error;
@@ -243,40 +244,73 @@ pub fn notify_user_registered() {
 
 // ============================================================
 // 스크래핑 실패 바코드 추적 (logs/fail_barcodes.json)
-// 포맷: { "<barcode>": <실패 횟수>, ... }
+// 포맷: { "<barcode>": { "updated_at": "YYYY-MM-DD HH:MM:SS", "fail_count": N }, ... }
+//  - updated_at 은 fail_count 갱신 시각(로컬/KST), 최신순(내림차순)으로 정렬해 저장한다.
 // ============================================================
 
 const FAIL_BARCODES_PATH: &str = "logs/fail_barcodes.json";
+
+/// 실패 바코드 1건의 값
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailBarcodeEntry {
+    /// 마지막 실패 시각 (YYYY-MM-DD HH:MM:SS)
+    pub updated_at: String,
+    /// 누적 실패(접근) 횟수
+    pub fail_count: i64,
+}
 
 lazy_static! {
     /// fail_barcodes.json 동시 접근(읽기-수정-쓰기) 직렬화용 락
     static ref FAIL_BARCODES_LOCK: Mutex<()> = Mutex::new(());
 }
 
+fn now_str() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
 /// fail_barcodes.json 을 읽어 맵으로 반환 (파일이 없거나 깨졌으면 빈 맵)
-fn read_fail_barcodes() -> HashMap<String, i64> {
+fn read_fail_barcodes() -> HashMap<String, FailBarcodeEntry> {
     std::fs::read_to_string(FAIL_BARCODES_PATH)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
 
-/// 맵을 fail_barcodes.json 으로 저장
-fn write_fail_barcodes(map: &HashMap<String, i64>) {
+/// serde_json 의 Map 은 순서를 보존하지 않으므로, 정렬된 순서 그대로 JSON 객체로 직렬화하기 위한 래퍼.
+struct OrderedFailBarcodes<'a>(&'a [(&'a String, &'a FailBarcodeEntry)]);
+
+impl Serialize for OrderedFailBarcodes<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (k, v) in self.0 {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
+    }
+}
+
+/// 맵을 updated_at 내림차순(최신 먼저)으로 정렬해 fail_barcodes.json 으로 저장.
+/// updated_at 이 고정폭 형식이라 문자열 내림차순 정렬이 곧 시간 최신순이다.
+fn write_fail_barcodes(map: &HashMap<String, FailBarcodeEntry>) {
     let _ = std::fs::create_dir_all("logs");
-    if let Ok(json) = serde_json::to_string_pretty(map) {
+    let mut entries: Vec<(&String, &FailBarcodeEntry)> = map.iter().collect();
+    entries.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
+
+    if let Ok(json) = serde_json::to_string_pretty(&OrderedFailBarcodes(&entries)) {
         let _ = std::fs::write(FAIL_BARCODES_PATH, json);
     }
 }
 
-/// 바코드가 실패 목록에 이미 있으면 실패 횟수를 +1 하고 true 를 반환한다(=스크래핑 생략, 실패 응답).
+/// 바코드가 실패 목록에 이미 있으면 fail_count +1, updated_at 갱신 후 true 를 반환한다(=스크래핑 생략, 실패 응답).
 /// 없으면 아무것도 바꾸지 않고 false 를 반환한다(=스크래핑 시도).
 pub fn check_and_increment_fail_barcode(barcode: &str) -> bool {
     let _guard = FAIL_BARCODES_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let mut map = read_fail_barcodes();
     match map.get_mut(barcode) {
-        Some(count) => {
-            *count += 1;
+        Some(entry) => {
+            entry.fail_count += 1;
+            entry.updated_at = now_str();
             write_fail_barcodes(&map);
             true
         }
@@ -284,10 +318,47 @@ pub fn check_and_increment_fail_barcode(barcode: &str) -> bool {
     }
 }
 
-/// 스크래핑까지 실패한 바코드를 실패 목록에 신규 추가한다(횟수 1, 이미 있으면 +1).
+/// 스크래핑까지 실패한 바코드를 실패 목록에 신규 추가한다(횟수 1, 이미 있으면 +1). updated_at 갱신.
 pub fn record_fail_barcode(barcode: &str) {
     let _guard = FAIL_BARCODES_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let mut map = read_fail_barcodes();
-    *map.entry(barcode.to_string()).or_insert(0) += 1;
+    let entry = map
+        .entry(barcode.to_string())
+        .or_insert(FailBarcodeEntry { updated_at: String::new(), fail_count: 0 });
+    entry.fail_count += 1;
+    entry.updated_at = now_str();
     write_fail_barcodes(&map);
+}
+
+/// 조회 응답용: 실패 바코드 전체를 updated_at 최신순으로 담되, JSON 객체 키 순서를 보존해 직렬화한다.
+pub struct FailBarcodesView(Vec<(String, FailBarcodeEntry)>);
+
+impl Serialize for FailBarcodesView {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (k, v) in &self.0 {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
+    }
+}
+
+/// fail_barcodes.json 전체를 updated_at 최신순(내림차순)으로 반환한다 (파일에 저장된 순서와 동일).
+pub fn read_fail_barcodes_view() -> FailBarcodesView {
+    let _guard = FAIL_BARCODES_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let mut entries: Vec<(String, FailBarcodeEntry)> = read_fail_barcodes().into_iter().collect();
+    entries.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
+    FailBarcodesView(entries)
+}
+
+/// fail_barcodes.json 에서 특정 barcode 키를 삭제한다. 있어서 삭제하면 true, 없었으면 false.
+pub fn delete_fail_barcode(barcode: &str) -> bool {
+    let _guard = FAIL_BARCODES_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let mut map = read_fail_barcodes();
+    let existed = map.remove(barcode).is_some();
+    if existed {
+        write_fail_barcodes(&map);
+    }
+    existed
 }

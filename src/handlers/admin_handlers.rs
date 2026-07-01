@@ -1030,3 +1030,41 @@ pub async fn delete_admin_deleted_images(
     };
     Ok(HttpResponse::Ok().json(response))
 }
+
+// ============================================
+// MARK: GET /admin/barcode/failures
+// ============================================
+
+/// logs/fail_barcodes.json 내용을 그대로(updated_at 최신순) 반환한다.
+pub async fn get_admin_barcode_failures(req: HttpRequest) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let response = CommonResponse {
+        result: true,
+        data: crate::utils::logger::read_fail_barcodes_view(),
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: DELETE /admin/barcode/failures/:barcode_id
+// ============================================
+
+/// logs/fail_barcodes.json 에서 해당 barcode 키를 삭제한다. (없어도 성공 처리 — 멱등)
+pub async fn delete_admin_barcode_failure(
+    req: HttpRequest,
+    barcode_id_param: web::Path<String>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+    let barcode_id = barcode_id_param.into_inner();
+    let removed = crate::utils::logger::delete_fail_barcode(&barcode_id);
+    info!("[Admin] fail_barcodes 삭제 요청: {} (삭제됨: {})", barcode_id, removed);
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
