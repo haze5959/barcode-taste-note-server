@@ -1048,6 +1048,22 @@ pub async fn get_admin_barcode_failures(req: HttpRequest) -> Result<HttpResponse
 }
 
 // ============================================
+// MARK: GET /admin/barcode/successes
+// ============================================
+
+/// logs/success_barcodes.json 내용을 그대로(updated_at 최신순) 반환한다.
+pub async fn get_admin_barcode_successes(req: HttpRequest) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let response = CommonResponse {
+        result: true,
+        data: crate::utils::logger::read_success_barcodes_view(),
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
 // MARK: DELETE /admin/barcode/failures/:barcode_id
 // ============================================
 

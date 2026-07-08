@@ -159,6 +159,7 @@ async fn main() -> std::io::Result<()> {
                             .route("/deleted/images", web::delete().to(handlers::admin_handlers::delete_admin_deleted_images))
                             // 실패 바코드: 정적 경로(/barcode/failures)를 동적(/barcode/{barcode_id})보다 먼저 등록
                             .route("/barcode/failures", web::get().to(handlers::admin_handlers::get_admin_barcode_failures))
+                            .route("/barcode/successes", web::get().to(handlers::admin_handlers::get_admin_barcode_successes))
                             .route("/barcode/failures/{barcode_id}", web::delete().to(handlers::admin_handlers::delete_admin_barcode_failure))
                             .route("/barcode", web::put().to(handlers::admin_handlers::update_admin_barcode))
                             .route("/barcode", web::post().to(handlers::admin_handlers::add_admin_barcode))

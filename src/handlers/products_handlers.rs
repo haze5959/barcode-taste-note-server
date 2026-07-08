@@ -1001,6 +1001,7 @@ async fn process_get_product_by_barcode(
     match product_detail_result {
         Ok(detail) => {
             crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&detail.product.name)).await;
+            crate::utils::logger::record_success_barcode(&barcode_str);
             let response = CommonResponse {
                 result: true,
                 data: detail,
@@ -1065,9 +1066,12 @@ async fn process_get_product_by_barcode(
                 // 동일 이름 제품이 있으면 바코드만 연결하고 바로 조회
                 if let Ok(Some(_)) = web::block(move || db_check_and_attach_barcode(&mut db_clone_check.get().unwrap(), &name_check, barcode_check.as_deref())).await? {
                     let db_clone_fetch = db.clone();
-                    let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, barcode_str, sub)).await?;
+                    let bc_fetch1 = barcode_str.clone();
+                    let sub_fetch1 = sub.clone();
+                    let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, bc_fetch1, sub_fetch1)).await?;
                     match new_detail {
                         Ok(detail) => {
+                            crate::utils::logger::record_success_barcode(&barcode_str);
                             let response = CommonResponse { result: true, data: detail, error: None };
                             return Ok(HttpResponse::Ok().json(response));
                         }
@@ -1087,9 +1091,12 @@ async fn process_get_product_by_barcode(
                     Ok(_prod) => {
                         // After creating, query details again
                         let db_clone_fetch = db.clone();
-                        let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, barcode_str, sub)).await?;
+                        let bc_fetch2 = barcode_str.clone();
+                        let sub_fetch2 = sub.clone();
+                        let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, bc_fetch2, sub_fetch2)).await?;
                         match new_detail {
                             Ok(detail) => {
+                                crate::utils::logger::record_success_barcode(&barcode_str);
                                 let response = CommonResponse { result: true, data: detail, error: None };
                                 Ok(HttpResponse::Ok().json(response))
                             }

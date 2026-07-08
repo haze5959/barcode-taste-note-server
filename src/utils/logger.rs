@@ -362,3 +362,92 @@ pub fn delete_fail_barcode(barcode: &str) -> bool {
     }
     existed
 }
+
+// ============================================================
+// 성공 바코드 추적 (logs/success_barcodes.json)
+// 포맷: { "<barcode>": { "updated_at": "YYYY-MM-DD HH:MM:SS", "success_count": N }, ... }
+//  - updated_at 은 success_count 갱신 시각(로컬/KST), 최신순(내림차순)으로 정렬해 저장한다.
+// ============================================================
+
+const SUCCESS_BARCODES_PATH: &str = "logs/success_barcodes.json";
+
+/// 성공 바코드 1건의 값
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuccessBarcodeEntry {
+    /// 마지막 성공 시각 (YYYY-MM-DD HH:MM:SS)
+    pub updated_at: String,
+    /// 누적 성공(접근) 횟수
+    pub success_count: i64,
+}
+
+lazy_static! {
+    /// success_barcodes.json 동시 접근(읽기-수정-쓰기) 직렬화용 락
+    static ref SUCCESS_BARCODES_LOCK: Mutex<()> = Mutex::new(());
+}
+
+/// success_barcodes.json 을 읽어 맵으로 반환 (파일이 없거나 깨졌으면 빈 맵)
+fn read_success_barcodes() -> HashMap<String, SuccessBarcodeEntry> {
+    std::fs::read_to_string(SUCCESS_BARCODES_PATH)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// serde_json 의 Map 은 순서를 보존하지 않으므로, 정렬된 순서 그대로 JSON 객체로 직렬화하기 위한 래퍼.
+struct OrderedSuccessBarcodes<'a>(&'a [(&'a String, &'a SuccessBarcodeEntry)]);
+
+impl Serialize for OrderedSuccessBarcodes<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (k, v) in self.0 {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
+    }
+}
+
+/// 맵을 updated_at 내림차순(최신 먼저)으로 정렬해 success_barcodes.json 으로 저장.
+fn write_success_barcodes(map: &HashMap<String, SuccessBarcodeEntry>) {
+    let _ = std::fs::create_dir_all("logs");
+    let mut entries: Vec<(&String, &SuccessBarcodeEntry)> = map.iter().collect();
+    entries.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
+
+    if let Ok(json) = serde_json::to_string_pretty(&OrderedSuccessBarcodes(&entries)) {
+        let _ = std::fs::write(SUCCESS_BARCODES_PATH, json);
+    }
+}
+
+/// 조회에 성공한 바코드를 성공 목록에 신규 추가한다(횟수 1, 이미 있으면 +1). updated_at 갱신.
+pub fn record_success_barcode(barcode: &str) {
+    let _guard = SUCCESS_BARCODES_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let mut map = read_success_barcodes();
+    let entry = map
+        .entry(barcode.to_string())
+        .or_insert(SuccessBarcodeEntry { updated_at: String::new(), success_count: 0 });
+    entry.success_count += 1;
+    entry.updated_at = now_str();
+    write_success_barcodes(&map);
+}
+
+/// 조회 응답용: 성공 바코드 전체를 updated_at 최신순으로 담되, JSON 객체 키 순서를 보존해 직렬화한다.
+pub struct SuccessBarcodesView(Vec<(String, SuccessBarcodeEntry)>);
+
+impl Serialize for SuccessBarcodesView {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (k, v) in &self.0 {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
+    }
+}
+
+/// success_barcodes.json 전체를 updated_at 최신순(내림차순)으로 반환한다 (파일에 저장된 순서와 동일).
+pub fn read_success_barcodes_view() -> SuccessBarcodesView {
+    let _guard = SUCCESS_BARCODES_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let mut entries: Vec<(String, SuccessBarcodeEntry)> = read_success_barcodes().into_iter().collect();
+    entries.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
+    SuccessBarcodesView(entries)
+}
