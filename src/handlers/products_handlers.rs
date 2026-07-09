@@ -327,13 +327,20 @@ pub async fn get_product_by_id_with_auth(
     Ok(HttpResponse::Ok().json(response))
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BarcodeQuery {
+    pub skip_record: Option<bool>,
+}
+
 /// Path: /products/barcode/{barcode_id}
 pub async fn get_product_by_barcode(
     db: web::Data<Pool>,
     r2: web::Data<R2Client>,
     in_barcode_id: web::Path<String>,
+    query: web::Query<BarcodeQuery>,
 ) -> Result<HttpResponse, Error> {
-    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), None).await
+    let skip_record = query.into_inner().skip_record.unwrap_or(false);
+    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), None, skip_record).await
 }
 
 /// Path: /api/products/barcode/{barcode_id} (Authenticated)
@@ -342,10 +349,12 @@ pub async fn get_product_by_barcode_with_auth(
     db: web::Data<Pool>,
     r2: web::Data<R2Client>,
     in_barcode_id: web::Path<String>,
+    query: web::Query<BarcodeQuery>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let user_sub = auth_info.sub;
-    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), Some(user_sub)).await
+    let skip_record = query.into_inner().skip_record.unwrap_or(false);
+    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), Some(user_sub), skip_record).await
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -990,6 +999,7 @@ async fn process_get_product_by_barcode(
     r2: web::Data<R2Client>,
     barcode_str: String,
     sub: Option<String>,
+    skip_record: bool,
 ) -> Result<HttpResponse, Error> {
     let db_clone = db.clone();
     let bc_clone = barcode_str.clone();
@@ -1001,7 +1011,9 @@ async fn process_get_product_by_barcode(
     match product_detail_result {
         Ok(detail) => {
             crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&detail.product.name)).await;
-            crate::utils::logger::record_success_barcode(&barcode_str);
+            if !skip_record {
+                crate::utils::logger::record_success_barcode(&barcode_str);
+            }
             let response = CommonResponse {
                 result: true,
                 data: detail,
@@ -1071,7 +1083,9 @@ async fn process_get_product_by_barcode(
                     let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, bc_fetch1, sub_fetch1)).await?;
                     match new_detail {
                         Ok(detail) => {
-                            crate::utils::logger::record_success_barcode(&barcode_str);
+                            if !skip_record {
+                                crate::utils::logger::record_success_barcode(&barcode_str);
+                            }
                             let response = CommonResponse { result: true, data: detail, error: None };
                             return Ok(HttpResponse::Ok().json(response));
                         }
@@ -1096,7 +1110,9 @@ async fn process_get_product_by_barcode(
                         let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, bc_fetch2, sub_fetch2)).await?;
                         match new_detail {
                             Ok(detail) => {
-                                crate::utils::logger::record_success_barcode(&barcode_str);
+                                if !skip_record {
+                                    crate::utils::logger::record_success_barcode(&barcode_str);
+                                }
                                 let response = CommonResponse { result: true, data: detail, error: None };
                                 Ok(HttpResponse::Ok().json(response))
                             }
@@ -1113,7 +1129,9 @@ async fn process_get_product_by_barcode(
                 }
             } else {
                 // 스크래핑까지 실패 → 실패 바코드 목록에 신규 추가 (다음 요청부터는 스크래핑 생략)
-                crate::utils::logger::record_fail_barcode(&barcode_str);
+                if !skip_record {
+                    crate::utils::logger::record_fail_barcode(&barcode_str);
+                }
                 crate::utils::logger::log_barcode_request(false, &barcode_str, None).await;
                 let response: CommonResponse<Option<()>> = CommonResponse {
                     result: false,
