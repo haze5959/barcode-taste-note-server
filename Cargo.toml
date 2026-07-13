@@ -47,5 +47,6 @@ members = [
     "crawler/spades",
     "crawler/willowspirits",
     "crawler/listex",
+    "crawler/barrelandbatch",
     "batch"
 ]

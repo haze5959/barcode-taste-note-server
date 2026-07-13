@@ -1010,8 +1010,8 @@ async fn process_get_product_by_barcode(
 
     match product_detail_result {
         Ok(detail) => {
-            crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&detail.product.name)).await;
             if !skip_record {
+                crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&detail.product.name)).await;
                 crate::utils::logger::record_success_barcode(&barcode_str);
             }
             let response = CommonResponse {
@@ -1131,8 +1131,8 @@ async fn process_get_product_by_barcode(
                 // 스크래핑까지 실패 → 실패 바코드 목록에 신규 추가 (다음 요청부터는 스크래핑 생략)
                 if !skip_record {
                     crate::utils::logger::record_fail_barcode(&barcode_str);
+                    crate::utils::logger::log_barcode_request(false, &barcode_str, None).await;
                 }
-                crate::utils::logger::log_barcode_request(false, &barcode_str, None).await;
                 let response: CommonResponse<Option<()>> = CommonResponse {
                     result: false,
                     data: None,
