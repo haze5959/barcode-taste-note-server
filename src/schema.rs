@@ -15,6 +15,36 @@ diesel::table! {
     use diesel::sql_types::*;
     use pgvector::sql_types::Vector;
 
+    cabinet_items (id) {
+        id -> Uuid,
+        cabinet_id -> Uuid,
+        product_id -> Uuid,
+        user_id -> Uuid,
+        index -> Int2,
+        registered -> Timestamptz,
+        quantity -> Int2,
+        capacity -> Nullable<Int2>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
+    cabinets (id) {
+        id -> Uuid,
+        user_id -> Uuid,
+        cabinet_index -> Int2,
+        name -> Text,
+        style -> Int2,
+        public_scope -> Int2,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use pgvector::sql_types::Vector;
+
     favorites (id) {
         id -> Uuid,
         product_id -> Uuid,
@@ -152,6 +182,8 @@ diesel::joinable!(reports -> users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     barcodes,
+    cabinet_items,
+    cabinets,
     favorites,
     fcm_tokens,
     flavor_tags,
