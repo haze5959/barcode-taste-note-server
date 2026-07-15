@@ -956,7 +956,7 @@ fn db_get_products_list_default(
 
     if let Some(ref order_by) = query.order_by {
         if order_by == "rating" {
-            products_query = products_query.order(products::rating.desc());
+            products_query = products_query.order((products::rating.desc(), products::registered.desc()));
         } else {
             products_query = products_query.order(products::registered.desc());
         }
