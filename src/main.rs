@@ -6,6 +6,7 @@ use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 
 use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
+use std::io::Write;
 
 use barcode_taste_note::handlers;
 use barcode_taste_note::auth;
@@ -13,7 +14,23 @@ use barcode_taste_note::auth;
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok(); // Reads the .env file
-    env_logger::init();
+
+    // 로그 형식: 기본 "[날짜T시각Z LEVEL module]" 대신 "[시:분:초]" 만 (한국시간, UTC+9)
+    // RUST_LOG 필터는 그대로 적용. 날짜별 파일 분리는 logger.pl 이 system localtime 으로 처리.
+    env_logger::Builder::from_env(env_logger::Env::default())
+        .format(|buf, record| {
+            let kst = chrono::Utc::now()
+                .with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap());
+            let time = kst.format("%H:%M:%S");
+            // WARN·ERROR 만 레벨을 앞에 표시, INFO 이하는 시각만
+            match record.level() {
+                log::Level::Warn | log::Level::Error => {
+                    writeln!(buf, "[{}] [{}] {}", time, record.level(), record.args())
+                }
+                _ => writeln!(buf, "[{}] {}", time, record.args()),
+            }
+        })
+        .init();
 
     // Initialize rustls CryptoProvider (required for rustls 0.23+ when multiple/no default providers are present)
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -64,8 +81,11 @@ async fn main() -> std::io::Result<()> {
             // Products
             .route("/products", web::post().to(handlers::products_handlers::create_product))
             .route("/products", web::get().to(handlers::products_handlers::get_products_list))
+            .route("/products/autocomplete", web::get().to(handlers::products_handlers::get_products_autocomplete))
             .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list_by_user_id))
             .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode))
+            .route("/products/cabinets/{user_id}", web::get().to(handlers::products_handlers::get_cabinets_by_user_id))
+            .route("/products/cabinet/{id}", web::get().to(handlers::products_handlers::get_cabinet_by_id))
             .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id))
             // Notes
             .route("/notes", web::get().to(handlers::notes_handlers::get_notes_list))
@@ -78,6 +98,7 @@ async fn main() -> std::io::Result<()> {
             .route("/btn/home", web::get().to(handlers::btn_app_handlers::get_home_info))
             // Webhooks
             .route("/webhooks/appstore", web::post().to(handlers::webhook_handlers::handle_appstore_notification))
+            .route("/webhooks/playstore", web::post().to(handlers::webhook_handlers::handle_playstore_notification))
             // Authenticated routes
             .service(
                 web::scope("api")
@@ -102,6 +123,13 @@ async fn main() -> std::io::Result<()> {
                             .route("/products/tasted", web::get().to(handlers::products_handlers::get_tasted_products_list))
                             .route("/products/ai", web::post().to(handlers::products_handlers::create_product_by_ai))
                             .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode_with_auth))
+                            .route("/products/cabinet", web::post().to(handlers::products_handlers::create_cabinet))
+                            .route("/products/cabinet/{id}", web::put().to(handlers::products_handlers::update_cabinet))
+                            .route("/products/cabinet/{id}", web::delete().to(handlers::products_handlers::delete_cabinet))
+                            .route("/products/cabinet/item", web::post().to(handlers::products_handlers::create_cabinet_item))
+                            .route("/products/cabinet/item/{id}", web::put().to(handlers::products_handlers::update_cabinet_item))
+                            .route("/products/cabinet/item/{id}", web::delete().to(handlers::products_handlers::delete_cabinet_item))
+                            .route("/products/cabinets", web::get().to(handlers::products_handlers::get_my_cabinets))
                             .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id_with_auth))
                             // Notes
                             .route("/notes/calendar", web::get().to(handlers::notes_handlers::get_notes_calendar))
@@ -128,6 +156,7 @@ async fn main() -> std::io::Result<()> {
                             .route("/report", web::get().to(handlers::admin_handlers::get_reports))
                             .route("/report", web::put().to(handlers::admin_handlers::update_admin_report))
                             .route("/product/barcodes", web::get().to(handlers::admin_handlers::get_admin_product_barcodes))
+                            .route("/product/details", web::get().to(handlers::admin_handlers::get_admin_product_details))
                             .route("/product/main_image", web::get().to(handlers::admin_handlers::get_admin_product_main_image))
                             .route("/product", web::put().to(handlers::admin_handlers::update_admin_product))
                             .route("/product/merge", web::post().to(handlers::admin_handlers::merge_admin_product))
@@ -135,6 +164,15 @@ async fn main() -> std::io::Result<()> {
                             .route("/image", web::post().to(handlers::admin_handlers::upload_admin_image))
                             .route("/image/url", web::post().to(handlers::admin_handlers::upload_admin_image_by_url))
                             .route("/images/{id}", web::delete().to(handlers::admin_handlers::delete_admin_image))
+                            .route("/deleted/images", web::get().to(handlers::admin_handlers::get_admin_deleted_images))
+                            .route("/deleted/images", web::delete().to(handlers::admin_handlers::delete_admin_deleted_images))
+                            // 실패 바코드: 정적 경로(/barcode/failures)를 동적(/barcode/{barcode_id})보다 먼저 등록
+                            .route("/barcode/failures", web::get().to(handlers::admin_handlers::get_admin_barcode_failures))
+                            .route("/barcode/successes", web::get().to(handlers::admin_handlers::get_admin_barcode_successes))
+                            .route("/barcode/failures/{barcode_id}", web::delete().to(handlers::admin_handlers::delete_admin_barcode_failure))
+                            .route("/barcode", web::put().to(handlers::admin_handlers::update_admin_barcode))
+                            .route("/barcode", web::post().to(handlers::admin_handlers::add_admin_barcode))
+                            .route("/barcode/{barcode_id}", web::delete().to(handlers::admin_handlers::delete_admin_barcode))
                     )
             )
     })

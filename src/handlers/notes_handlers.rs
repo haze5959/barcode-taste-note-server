@@ -3,7 +3,7 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, Product, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple, NoteListQuery, NoteListResponse};
+use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple, NoteListQuery, NoteListResponse};
 use crate::schema::{flavor_tags, notes, product_images, products, users};
 use crate::utils::auth::{get_auth_info, AuthInfo};
 use crate::utils::db::get_user_id_by_sub;
@@ -398,6 +398,7 @@ fn db_create_note(
                     product_images::user_id.eq(user_id),
                     product_images::note_id.eq(note.id),
                     product_images::product_id.eq(note.product_id),
+                    product_images::public_scope.eq(Some(item.public_scope)),
                 ))
                 .execute(conn)?;
         }
@@ -724,6 +725,11 @@ fn db_update_note(
                 .execute(conn)?;
         }
 
+        // 해당 노트에 연결된 모든 이미지의 public_scope 업데이트
+        diesel::update(product_images::table.filter(product_images::note_id.eq(note_id)))
+            .set(product_images::public_scope.eq(Some(item.public_scope)))
+            .execute(conn)?;
+
         // Flavor tags 업데이트
         if let Some(flavors) = &item.selected_flavors {
             // 현재 flavor tags 조회
@@ -833,7 +839,6 @@ fn db_update_product_stats(
     let note_count_from_db: i64 = notes::table
         .filter(notes::product_id.eq(product_id))
         .filter(notes::rating.ne(0))
-        .filter(notes::public_scope.ne(0))
         .count()
         .get_result::<i64>(conn)
         .map_err(handler_disel_error)?;
@@ -842,7 +847,6 @@ fn db_update_product_stats(
     let rating_sum: i64 = notes::table
         .filter(notes::product_id.eq(product_id))
         .filter(notes::rating.ne(0))
-        .filter(notes::public_scope.ne(0))
         .select(diesel::dsl::sum(notes::rating))
         .first::<Option<i64>>(conn)
         .map_err(handler_disel_error)?
@@ -854,13 +858,13 @@ fn db_update_product_stats(
     };
 
     // Flavors 업데이트
-    let product = products::table
-        .select(crate::models::PRODUCT_COLUMNS)
+    let flavor_infos_opt: Option<serde_json::Value> = products::table
+        .select(crate::schema::products::flavor_infos)
         .find(product_id)
-        .first::<Product>(conn)
+        .first::<Option<serde_json::Value>>(conn)
         .map_err(handler_disel_error)?;
 
-    let mut current_flavors_json = product.flavor_infos.unwrap_or(serde_json::json!({}));
+    let mut current_flavors_json = flavor_infos_opt.unwrap_or(serde_json::json!({}));
     if let Some(flavors) = new_flavors {
         if let Some(obj) = current_flavors_json.as_object_mut() {
             for flavor_id in flavors {

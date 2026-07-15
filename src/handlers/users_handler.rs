@@ -33,6 +33,8 @@ pub struct AddUserParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchUserQuery {
     pub nick_name: Option<String>,
+    // 클라이언트는 `index`로 페이지 번호를 보낸다. `page`/`index` 둘 다 허용.
+    #[serde(alias = "index")]
     pub page: Option<i64>,
     pub per: Option<i64>,
 }
@@ -418,7 +420,7 @@ fn db_search_users(
     if let Some(nick) = query.nick_name {
         if !nick.trim().is_empty() {
             let search_pattern = format!("%{}%", nick);
-            user_query = user_query.filter(crate::schema::users::nick_name.like(search_pattern));
+            user_query = user_query.filter(crate::schema::users::nick_name.ilike(search_pattern));
         }
     }
 
@@ -695,6 +697,9 @@ pub(crate) fn register_user(
         .returning(USER_COLUMNS)
         .get_result::<User>(conn)
         .map_err(handler_disel_error)?;
+
+    // 신규 가입 성공 → 운영자에게 가입 알림 (10분 윈도우 동안 누적해 한 번에 발송)
+    crate::utils::logger::notify_user_registered();
 
     Ok(res)
 }

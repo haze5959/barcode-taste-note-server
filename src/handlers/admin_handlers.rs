@@ -19,7 +19,7 @@ use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use uuid::Uuid;
-use log::error;
+use log::{error, info};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdminProductMainImageResponse {
@@ -38,6 +38,20 @@ pub struct AdminUpdateProductParams {
     pub desc: Option<String>,
     #[serde(rename = "type")]
     pub type_: Option<i16>,
+    pub details: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminProductDetailsQuery {
+    pub product_name: String,
+    pub only_details: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminProductDetailsResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub desc: Option<String>,
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -379,6 +393,39 @@ fn db_get_admin_product_main_image(pool: web::Data<Pool>, product_id: Uuid) -> R
 }
 
 // ============================================
+// MARK: GET /admin/product/details
+// ============================================
+pub async fn get_admin_product_details(
+    req: HttpRequest,
+    query: web::Query<AdminProductDetailsQuery>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let query_inner = query.into_inner();
+    let product_name = query_inner.product_name;
+
+    if let Some(info) = crate::utils::gemini::generate_product_info_with_gemini(&product_name).await {
+        let response_data = AdminProductDetailsResponse {
+            desc: if query_inner.only_details { None } else { Some(info.description) },
+            details: info.details,
+        };
+        let response = CommonResponse {
+            result: true,
+            data: response_data,
+            error: None,
+        };
+        Ok(HttpResponse::Ok().json(response))
+    } else {
+        let resp: CommonResponse<Option<()>> = CommonResponse {
+            result: false,
+            data: None,
+            error: Some(CommonResponseError::InternalServerError as u8),
+        };
+        Ok(HttpResponse::Ok().json(resp))
+    }
+}
+
+// ============================================
 // MARK: PUT /admin/product
 // ============================================
 pub async fn update_admin_product(
@@ -392,6 +439,7 @@ pub async fn update_admin_product(
     let name = item.name.clone();
     let desc = item.desc.clone();
     let type_ = item.type_;
+    let details = item.details.clone();
 
     // 임베딩 갱신 필요 여부
     let new_embedding = if let Some(ref new_name) = name {
@@ -401,7 +449,7 @@ pub async fn update_admin_product(
     };
 
     let updated_product = web::block(move || {
-        db_update_admin_product(db, product_id, name, desc, type_, new_embedding)
+        db_update_admin_product(db, product_id, name, desc, type_, details, new_embedding)
     })
     .await??;
 
@@ -421,6 +469,7 @@ struct AdminProductChangeset {
     #[diesel(column_name = type_)]
     type_: Option<i16>,
     embedding: Option<Vector>,
+    details: Option<serde_json::Value>,
 }
 
 fn db_update_admin_product(
@@ -429,6 +478,7 @@ fn db_update_admin_product(
     name: Option<String>,
     desc: Option<String>,
     type_: Option<i16>,
+    details: Option<serde_json::Value>,
     new_embedding: Option<Vector>,
 ) -> Result<Product, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
@@ -438,6 +488,7 @@ fn db_update_admin_product(
         desc,
         type_,
         embedding: new_embedding,
+        details,
     };
 
     let updated_product = conn.transaction::<Product, CommonResponseError, _>(|conn| {
@@ -618,6 +669,7 @@ pub async fn upload_admin_image(
         note_id: None,
         user_id: None,
         registered: chrono::Utc::now(),
+        public_scope: None,
     };
     web::block(move || {
         let conn = &mut db.get().unwrap();
@@ -709,6 +761,7 @@ pub async fn upload_admin_image_by_url(
         note_id: None,
         user_id: None,
         registered: chrono::Utc::now(),
+        public_scope: None,
     };
     web::block(move || {
         let conn = &mut db.get().unwrap();
@@ -799,6 +852,230 @@ pub async fn delete_admin_image(
             .map_err(handler_disel_error)
     })
     .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminBarcodePayload {
+    pub barcode_id: String,
+    pub product_id: Uuid,
+}
+
+// ============================================
+// MARK: PUT /admin/barcode
+// ============================================
+pub async fn update_admin_barcode(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    payload: web::Json<AdminBarcodePayload>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+    let payload = payload.into_inner();
+
+    web::block(move || {
+        let conn = &mut db.get().unwrap();
+        diesel::update(barcodes::table.filter(barcodes::barcode_id.eq(payload.barcode_id)))
+            .set(barcodes::product_id.eq(payload.product_id))
+            .execute(conn)
+            .map_err(handler_disel_error)
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: POST /admin/barcode
+// ============================================
+pub async fn add_admin_barcode(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    payload: web::Json<AdminBarcodePayload>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+    let payload = payload.into_inner();
+
+    web::block(move || {
+        let conn = &mut db.get().unwrap();
+        diesel::insert_into(barcodes::table)
+            .values((
+                barcodes::id.eq(Uuid::new_v4()),
+                barcodes::barcode_id.eq(payload.barcode_id),
+                barcodes::product_id.eq(payload.product_id),
+            ))
+            .execute(conn)
+            .map_err(handler_disel_error)
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: DELETE /admin/barcode/:barcode_id
+// ============================================
+pub async fn delete_admin_barcode(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    barcode_id_param: web::Path<String>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+    let barcode_id = barcode_id_param.into_inner();
+
+    web::block(move || {
+        let conn = &mut db.get().unwrap();
+        diesel::delete(barcodes::table.filter(barcodes::barcode_id.eq(barcode_id)))
+            .execute(conn)
+            .map_err(handler_disel_error)
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: GET /admin/deleted/images
+// ============================================
+
+/// clean_image 배치(고아 이미지 → R2 deleted/images/ 이동)를 실행한 뒤,
+/// R2 의 deleted/images/ 경로에 쌓인 파일명(UUID) 목록을 반환한다.
+pub async fn get_admin_deleted_images(
+    req: HttpRequest,
+    r2: web::Data<R2Client>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    // 1. 고아 이미지 정리 배치 실행 (자식 프로세스 대기는 블로킹이므로 web::block 에서 수행)
+    let output = web::block(|| {
+        std::process::Command::new("./deploy_bin/barnote_batch")
+            .arg("clean_image")
+            .output()
+    })
+    .await?
+    .map_err(|e| {
+        error!("[Admin] clean_image 실행 실패: {}", e);
+        CommonResponseError::InternalServerError
+    })?;
+
+    if !output.status.success() {
+        error!(
+            "[Admin] clean_image 비정상 종료 (code={:?}): {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(CommonResponseError::InternalServerError.into());
+    }
+    info!("[Admin] clean_image 완료: {}", String::from_utf8_lossy(&output.stdout).trim());
+
+    // 2. R2 deleted/images/ 경로의 파일명(UUID) 목록 조회
+    let prefix = "deleted/images/";
+    let keys = r2.list_keys(prefix).await?;
+    let names: Vec<String> = keys
+        .iter()
+        .filter_map(|key| key.strip_prefix(prefix))
+        .filter(|name| !name.is_empty())
+        .map(|name| name.to_string())
+        .collect();
+
+    let response = CommonResponse {
+        result: true,
+        data: names,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: DELETE /admin/deleted/images
+// ============================================
+
+/// R2 의 deleted/images/ 경로에 보관 중인 이미지를 전부 삭제한다(영구 삭제).
+pub async fn delete_admin_deleted_images(
+    req: HttpRequest,
+    r2: web::Data<R2Client>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let keys = r2.list_keys("deleted/images/").await?;
+    if !keys.is_empty() {
+        r2.delete_keys(&keys).await?;
+    }
+    info!("[Admin] deleted/images 비우기 완료: {}건 삭제", keys.len());
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: GET /admin/barcode/failures
+// ============================================
+
+/// logs/fail_barcodes.json 내용을 그대로(updated_at 최신순) 반환한다.
+pub async fn get_admin_barcode_failures(req: HttpRequest) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let response = CommonResponse {
+        result: true,
+        data: crate::utils::logger::read_fail_barcodes_view(),
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: GET /admin/barcode/successes
+// ============================================
+
+/// logs/success_barcodes.json 내용을 그대로(updated_at 최신순) 반환한다.
+pub async fn get_admin_barcode_successes(req: HttpRequest) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+
+    let response = CommonResponse {
+        result: true,
+        data: crate::utils::logger::read_success_barcodes_view(),
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+// ============================================
+// MARK: DELETE /admin/barcode/failures/:barcode_id
+// ============================================
+
+/// logs/fail_barcodes.json 에서 해당 barcode 키를 삭제한다. (없어도 성공 처리 — 멱등)
+pub async fn delete_admin_barcode_failure(
+    req: HttpRequest,
+    barcode_id_param: web::Path<String>,
+) -> Result<HttpResponse, Error> {
+    validate_admin(&req)?;
+    let barcode_id = barcode_id_param.into_inner();
+    let removed = crate::utils::logger::delete_fail_barcode(&barcode_id);
+    info!("[Admin] fail_barcodes 삭제 요청: {} (삭제됨: {})", barcode_id, removed);
 
     let response: CommonResponse<Option<()>> = CommonResponse {
         result: true,

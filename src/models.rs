@@ -63,6 +63,7 @@ pub struct Product {
     pub flavor_infos: Option<serde_json::Value>,
     pub registered: DateTime<Utc>,
     pub note_count: i32,
+    pub details: Option<serde_json::Value>,
 }
 
 pub type ProductColumns = (
@@ -74,6 +75,7 @@ pub type ProductColumns = (
     crate::schema::products::flavor_infos,
     crate::schema::products::registered,
     crate::schema::products::note_count,
+    crate::schema::products::details,
 );
 
 pub const PRODUCT_COLUMNS: ProductColumns = (
@@ -85,6 +87,7 @@ pub const PRODUCT_COLUMNS: ProductColumns = (
     crate::schema::products::flavor_infos,
     crate::schema::products::registered,
     crate::schema::products::note_count,
+    crate::schema::products::details,
 );
 
 #[derive(Queryable, Serialize, Deserialize, Debug, Clone)]
@@ -109,6 +112,7 @@ pub struct NewProduct<'a> {
     pub desc: Option<&'a str>,
     pub registered: DateTime<Utc>,
     pub embedding: Option<Vector>,
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug)]
@@ -135,6 +139,7 @@ pub struct ProductImage {
     pub note_id: Option<Uuid>,
     pub user_id: Option<Uuid>,
     pub registered: DateTime<Utc>,
+    pub public_scope: Option<i16>,
 }
 
 #[derive(Insertable, Debug)]
@@ -145,6 +150,7 @@ pub struct NewProductImage {
     pub note_id: Option<Uuid>,
     pub user_id: Option<Uuid>,
     pub registered: DateTime<Utc>,
+    pub public_scope: Option<i16>,
 }
 
 #[derive(Identifiable, Queryable, Serialize, Deserialize, Debug, Clone)]
@@ -340,4 +346,60 @@ pub struct NoteListResponse {
     pub image_ids: Option<Vec<Uuid>>,
     pub product_image_id: Option<Uuid>,
     pub flavors: Option<Vec<i16>>,
+}
+
+#[derive(Queryable, Selectable, Insertable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = cabinets)]
+pub struct Cabinet {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub cabinet_index: i16,
+    pub name: String,
+    pub style: i16,
+    pub public_scope: i16,
+}
+
+#[derive(Queryable, Selectable, Insertable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = cabinet_items)]
+pub struct CabinetItem {
+    pub id: Uuid,
+    pub cabinet_id: Uuid,
+    pub product_id: Uuid,
+    pub user_id: Uuid,
+    pub index: i16,
+    pub registered: DateTime<Utc>,
+    pub quantity: i16,
+    pub capacity: Option<i16>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CabinetProductItem {
+    pub id: Uuid,
+    pub product: Product,
+    pub index: i16,
+    pub image_id: Option<Uuid>,
+    pub registered: DateTime<Utc>,
+    pub quantity: i16,
+    pub capacity: Option<i16>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CabinetListResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub style: i16,
+    pub cabinet_index: i16,
+    pub public_scope: i16,
+    pub products_count: i64,
+    pub products: Vec<CabinetProductItem>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CabinetDetailResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub style: i16,
+    pub cabinet_index: i16,
+    pub public_scope: i16,
+    pub products: Vec<CabinetProductItem>,
 }

@@ -2,7 +2,7 @@ use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use std::env;
 
-/// Cohere 임베딩 모델 (다국어, 1024차원 벡터 반환 — 한글↔영문 교차언어 검색 품질 우선)
+/// Cohere 임베딩 모델 (런타임과 동일하게 다국어, 1024차원)
 const COHERE_MODEL: &str = "embed-multilingual-v3.0";
 /// Cohere Embed v2 API 엔드포인트
 const COHERE_EMBED_URL: &str = "https://api.cohere.com/v2/embed";
@@ -11,12 +11,12 @@ const COHERE_EMBED_URL: &str = "https://api.cohere.com/v2/embed";
 #[derive(Serialize)]
 struct CohereEmbedRequest<'a> {
     model: &'a str,
-    texts: Vec<&'a str>,
+    texts: &'a [String],
     input_type: &'a str,
     embedding_types: Vec<&'a str>,
 }
 
-/// Cohere Embed 응답 바디 (필요한 필드만 매핑, 나머지는 무시)
+/// Cohere Embed 응답 바디 (필요한 필드만 매핑)
 #[derive(Deserialize)]
 struct CohereEmbedResponse {
     embeddings: CohereEmbeddings,
@@ -27,19 +27,22 @@ struct CohereEmbeddings {
     float: Vec<Vec<f32>>,
 }
 
-/// 저장(문서)용 임베딩 생성 — Cohere input_type=search_document.
-/// 크롤러는 수집한 제품을 DB에 적재만 하므로 문서 임베딩만 생성한다.
-pub async fn get_embedding(text: &str) -> Result<Vector, Box<dyn std::error::Error>> {
+/// 문서(저장)용 임베딩을 배치로 생성한다 — input_type=search_document.
+/// texts 는 최대 96개(Cohere 제한)까지 한 번의 호출로 처리하며,
+/// 입력 순서와 동일한 순서로 임베딩 벡터 목록을 반환한다.
+pub async fn embed_documents(
+    client: &reqwest::Client,
+    texts: &[String],
+) -> Result<Vec<Vector>, Box<dyn std::error::Error>> {
     let api_key = env::var("COHERE_API_KEY").map_err(|_| "COHERE_API_KEY is missing")?;
 
     let request_body = CohereEmbedRequest {
         model: COHERE_MODEL,
-        texts: vec![text],
+        texts,
         input_type: "search_document",
         embedding_types: vec!["float"],
     };
 
-    let client = reqwest::Client::new();
     let res = client
         .post(COHERE_EMBED_URL)
         .header("Authorization", format!("Bearer {}", api_key))
@@ -55,13 +58,6 @@ pub async fn get_embedding(text: &str) -> Result<Vector, Box<dyn std::error::Err
 
     let body: CohereEmbedResponse = res.json().await?;
 
-    // embed-multilingual-v3.0 은 1024차원 f32 벡터를 반환한다.
-    let embedding = body
-        .embeddings
-        .float
-        .into_iter()
-        .next()
-        .ok_or("Cohere 응답에 임베딩이 없습니다")?;
-
-    Ok(Vector::from(embedding))
+    // embed-multilingual-v3.0 은 항목별 1024차원 f32 벡터를 반환한다.
+    Ok(body.embeddings.float.into_iter().map(Vector::from).collect())
 }

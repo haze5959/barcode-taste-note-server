@@ -1,10 +1,9 @@
 use dotenvy::dotenv;
-use scraper::{Html, Selector};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::Duration;
 use tokio::time::sleep;
-use regex::Regex;
 
 // ============================================================
 // Gemini 요청/응답 모델
@@ -113,7 +112,6 @@ async fn call_gemini(client: &reqwest::Client, api_key: &str, product_name: &str
         .and_then(|p| p.text)
         .ok_or_else(|| "Empty Gemini response".to_string())?;
 
-    // JSON 블록 정리 (```json ... ``` 제거)
     let cleaned = text_output
         .trim()
         .trim_start_matches("```json")
@@ -121,12 +119,10 @@ async fn call_gemini(client: &reqwest::Client, api_key: &str, product_name: &str
         .trim_end_matches("```")
         .trim();
 
-    // error 케이스 확인
     if cleaned.contains("\"error\"") {
         return Err(format!("Gemini returned error for: {}", product_name));
     }
 
-    // product_name, desc 파싱
     let parsed: serde_json::Value = serde_json::from_str(cleaned)
         .map_err(|e| format!("JSON parse failed: {} | raw: {}", e, cleaned))?;
 
@@ -144,6 +140,21 @@ async fn call_gemini(client: &reqwest::Client, api_key: &str, product_name: &str
 }
 
 // ============================================================
+// 컬렉션 정보 모델
+// ============================================================
+
+struct CollectionConfig {
+    url_prefix: &'static str,
+    type_: &'static str,
+}
+
+const COLLECTIONS: &[CollectionConfig] = &[
+    CollectionConfig { url_prefix: "https://listex.online/spirits-1-33961994110000263", type_: "spirit" },
+    CollectionConfig { url_prefix: "https://listex.online/beer-2-417364622710000159", type_: "beer" },
+    CollectionConfig { url_prefix: "https://listex.online/wine-1-413131042210000588", type_: "wine" },
+];
+
+// ============================================================
 // MAIN
 // ============================================================
 
@@ -152,135 +163,114 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
     let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
-    let category_id = env::var("CATEGORY_ID").expect("CATEGORY_ID must be set");
-    let path_id = env::var("PATH_ID").expect("PATH_ID must be set");
-    let product_type = env::var("PRODUCT_TYPE").expect("PRODUCT_TYPE must be set");
-
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+        .default_headers({
+            let mut h = reqwest::header::HeaderMap::new();
+            h.insert(reqwest::header::ACCEPT, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".parse().unwrap());
+            h.insert(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9".parse().unwrap());
+            h
+        })
         .build()?;
 
-    let base_url = format!(
-        "https://artdrink.com.ua/index.php?route=product/category&path={}&category_id={}&limit=12&sort=p.sort_order&order=ASC",
-        path_id, category_id
-    );
-
     let mut all_results: Vec<OutputProduct> = Vec::new();
-    let mut page_num: u32 = 1;
-    let mut consecutive_empty = 0;
 
-    let product_selector = Selector::parse(".product-grid .product").unwrap();
-    let name_selector = Selector::parse(".name a").unwrap();
-    let img_selector = Selector::parse(".image img").unwrap();
-    let barcode_regex = Regex::new(r"\((\d{8,14})\)").unwrap();
+    // <a href="/product/80686973270-us-cruzan-estate-diamond-dark-rum">
+    //     <img class="products-slider__item__image img-responsive" src="https://icf.listex.info/300x200/b11fbdef-29f5-07d6-adda-a4aa467505c2.jpg" alt="Cruzan Estate Diamond Dark Rum" ...>
+    // </a>
+    let item_re = Regex::new(r#"<a href="/product/(\d+)-[^"]+">\s*<img[^>]*src="([^"]+)"[^>]*alt="([^"]+)""#).unwrap();
 
-    loop {
-        let url = format!("{}&page={}", base_url, page_num);
-        println!("[Page {}] Fetching: {}", page_num, url);
+    println!("\n========================================");
+    println!("Listex 크롤링 시작");
+    println!("========================================");
 
-        let resp = match client.get(&url).send().await {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("[Page {}] Request error: {}", page_num, e);
-                consecutive_empty += 1;
-                if consecutive_empty >= 3 {
-                    println!("3 consecutive errors. Stopping.");
-                    break;
-                }
-                sleep(Duration::from_secs(2)).await;
-                page_num += 1;
-                continue;
-            }
-        };
+    for collection in COLLECTIONS {
+        println!("\n========================================");
+        println!("컬렉션 크롤링 시작: {} (type: {})", collection.url_prefix, collection.type_);
+        println!("========================================");
 
-        if !resp.status().is_success() {
-            eprintln!("[Page {}] HTTP error: {}", page_num, resp.status());
-            consecutive_empty += 1;
-            if consecutive_empty >= 3 { break; }
-            sleep(Duration::from_secs(2)).await;
-            page_num += 1;
-            continue;
-        }
+        let mut page_num: u32 = 1;
+        let mut consecutive_empty = 0;
 
-        let html_text = resp.text().await.unwrap_or_default();
-        let document = Html::parse_document(&html_text);
+        loop {
+            let url = format!("{}/page{}/", collection.url_prefix, page_num);
+            println!("\n[Page {}] Fetching: {}", page_num, url);
 
-        let mut product_count = 0;
-
-        for product_el in document.select(&product_selector) {
-            product_count += 1;
-
-            let name_el = product_el.select(&name_selector).next();
-            let raw_name = match name_el {
-                Some(el) => el.text().collect::<Vec<_>>().join(" ").trim().to_string(),
-                None => {
-                    println!("  → 제품명 없음, 스킵");
+            let resp = match client.get(&url).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("[Page {}] Request error: {}", page_num, e);
+                    consecutive_empty += 1;
+                    if consecutive_empty >= 3 {
+                        println!("3 consecutive errors. Stopping collection.");
+                        break;
+                    }
+                    sleep(Duration::from_secs(2)).await;
+                    page_num += 1;
                     continue;
                 }
             };
 
-            let barcode = if let Some(caps) = barcode_regex.captures(&raw_name) {
-                caps.get(1).map_or("", |m| m.as_str()).to_string()
-            } else {
-                println!("  → 바코드 없음, 스킵");
+            if !resp.status().is_success() {
+                eprintln!("[Page {}] HTTP error: {}", page_num, resp.status());
+                consecutive_empty += 1;
+                if consecutive_empty >= 3 { break; }
+                sleep(Duration::from_secs(2)).await;
+                page_num += 1;
                 continue;
-            };
-
-            let img_el = product_el.select(&img_selector).next();
-            let raw_image_url = img_el.map(|el| {
-                el.value().attr("data-pagespeed-lazy-src")
-                  .or_else(|| el.value().attr("src"))
-                  .unwrap_or("")
-                  .to_string()
-            }).unwrap_or_default();
-
-            // Resize image URL from 220x180 to 480x440
-            let image_url = if raw_image_url.is_empty() {
-                None
-            } else {
-                let mut url = raw_image_url.replace("220x180", "480x440");
-                if !url.starts_with("http") {
-                    url = format!("https://artdrink.com.ua/{}", url.trim_start_matches('/'));
-                }
-                Some(url)
-            };
-
-            // Gemini 호출
-            match call_gemini(&client, &api_key, &raw_name).await {
-                Ok((product_name, desc, details)) => {
-                    println!("  ✓ {} → {}", raw_name, product_name);
-                    all_results.push(OutputProduct {
-                        barcode,
-                        product_name,
-                        desc,
-                        type_: product_type.clone(),
-                        image_url,
-                        details,
-                    });
-                    // 저장 주기를 앞으로 당겨 실시간으로 파일에 기록되도록 합니다.
-                    save_output(&all_results);
-                }
-                Err(e) => {
-                    println!("  ✗ {} 실패: {}", raw_name, e);
-                }
             }
 
-            // API 부하 방지
-            sleep(Duration::from_millis(500)).await;
+            let html = resp.text().await.unwrap_or_default();
+
+            let mut page_products = Vec::new();
+            for cap in item_re.captures_iter(&html) {
+                let barcode = cap[1].to_string();
+                let image_url = cap[2].to_string();
+                let title = cap[3].to_string();
+                page_products.push((barcode, image_url, title));
+            }
+
+            if page_products.is_empty() {
+                println!("[Page {}] 제품 없음 → 다음 컬렉션으로 이동", page_num);
+                break;
+            }
+
+            consecutive_empty = 0;
+            println!("[Page {}] {}개 제품 발견", page_num, page_products.len());
+
+            for (barcode, image_url, title) in page_products {
+                let clean_title = title.trim().to_string();
+                let type_ = collection.type_.to_string();
+
+                // Gemini 호출
+                match call_gemini(&client, &api_key, &clean_title).await {
+                    Ok((product_name, desc, details)) => {
+                        println!("  ✓ {} → {}", clean_title, product_name);
+                        all_results.push(OutputProduct {
+                            barcode,
+                            product_name,
+                            desc,
+                            type_,
+                            image_url: Some(image_url),
+                            details,
+                        });
+                    }
+                    Err(e) => {
+                        println!("  ✗ {} 실패: {}", clean_title, e);
+                    }
+                }
+
+                // API 부하 방지
+                sleep(Duration::from_millis(500)).await;
+            }
+
+            // 결과 중간 저장 (각 페이지 완료 후)
+            save_output(&all_results);
+
+            page_num += 1;
+            sleep(Duration::from_secs(1)).await;
         }
-
-        if product_count == 0 {
-            println!("[Page {}] 제품 없음 → 크롤링 종료", page_num);
-            break;
-        }
-
-        println!("[Page {}] {}개 제품 처리 완료.", page_num, product_count);
-
-        // 결과 중간 저장 (각 페이지 완료 후)
-        save_output(&all_results);
-
-        page_num += 1;
-        sleep(Duration::from_secs(1)).await;
     }
 
     println!("\n완료. 총 {}개 제품 저장됨.", all_results.len());

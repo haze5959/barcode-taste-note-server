@@ -1,10 +1,24 @@
 use dotenvy::dotenv;
-use scraper::{Html, Selector};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::Duration;
 use tokio::time::sleep;
-use regex::Regex;
+
+// ============================================================
+// Wix/WillowSpirits 메타 변수에서 파싱할 제품 모델
+// ============================================================
+
+#[derive(Debug, Deserialize)]
+struct WillowDocument {
+    title: Option<String>,
+    image: Option<WillowImage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WillowImage {
+    name: String,
+}
 
 // ============================================================
 // Gemini 요청/응답 모델
@@ -144,6 +158,53 @@ async fn call_gemini(client: &reqwest::Client, api_key: &str, product_name: &str
 }
 
 // ============================================================
+// HTML 파싱: 문서에서 제품 정보 추출
+// ============================================================
+
+fn parse_documents(html: &str) -> Vec<WillowDocument> {
+    let re = Regex::new(r#""search:SearchResponse"\s*:\s*\{"documents"\s*:\s*"#).unwrap();
+    if let Some(mat) = re.find(html) {
+        let bytes = html.as_bytes();
+        let mut json_start = mat.end();
+        while json_start < bytes.len() && bytes[json_start] != b'[' {
+            json_start += 1;
+        }
+        if json_start >= bytes.len() {
+            println!("  '[' NOT FOUND AFTER KEY");
+            return vec![];
+        }
+
+        let mut depth = 0;
+        let mut json_end = json_start;
+        for (i, &b) in bytes[json_start..].iter().enumerate() {
+            match b {
+                b'[' => depth += 1,
+                b']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        json_end = json_start + i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let json_str = &html[json_start..json_end];
+        match serde_json::from_str::<Vec<WillowDocument>>(json_str) {
+            Ok(docs) => return docs,
+            Err(e) => {
+                eprintln!("  JSON 파싱 실패: {}", e);
+                eprintln!("  JSON raw: {}", &json_str[..std::cmp::min(json_str.len(), 200)]);
+            }
+        }
+    } else {
+        println!("  'search:SearchResponse' KEY NOT FOUND IN HTML");
+    }
+    vec![]
+}
+
+// ============================================================
 // MAIN
 // ============================================================
 
@@ -152,31 +213,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
     let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
-    let category_id = env::var("CATEGORY_ID").expect("CATEGORY_ID must be set");
-    let path_id = env::var("PATH_ID").expect("PATH_ID must be set");
-    let product_type = env::var("PRODUCT_TYPE").expect("PRODUCT_TYPE must be set");
-
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+        .default_headers({
+            let mut h = reqwest::header::HeaderMap::new();
+            h.insert(reqwest::header::ACCEPT, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".parse().unwrap());
+            h.insert(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9".parse().unwrap());
+            h
+        })
         .build()?;
 
-    let base_url = format!(
-        "https://artdrink.com.ua/index.php?route=product/category&path={}&category_id={}&limit=12&sort=p.sort_order&order=ASC",
-        path_id, category_id
-    );
-
     let mut all_results: Vec<OutputProduct> = Vec::new();
+    let base_url = "https://www.willowspirits.com/search?type=products";
+    let barcode_re = Regex::new(r"\(([\d]{8,15})\)").unwrap();
+
     let mut page_num: u32 = 1;
     let mut consecutive_empty = 0;
 
-    let product_selector = Selector::parse(".product-grid .product").unwrap();
-    let name_selector = Selector::parse(".name a").unwrap();
-    let img_selector = Selector::parse(".image img").unwrap();
-    let barcode_regex = Regex::new(r"\((\d{8,14})\)").unwrap();
+    println!("\n========================================");
+    println!("Willow Spirits 크롤링 시작");
+    println!("========================================");
 
     loop {
         let url = format!("{}&page={}", base_url, page_num);
-        println!("[Page {}] Fetching: {}", page_num, url);
+        println!("\n[Page {}] Fetching: {}", page_num, url);
 
         let resp = match client.get(&url).send().await {
             Ok(r) => r,
@@ -184,7 +245,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("[Page {}] Request error: {}", page_num, e);
                 consecutive_empty += 1;
                 if consecutive_empty >= 3 {
-                    println!("3 consecutive errors. Stopping.");
+                    println!("3 consecutive errors. Stopping collection.");
                     break;
                 }
                 sleep(Duration::from_secs(2)).await;
@@ -202,79 +263,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        let html_text = resp.text().await.unwrap_or_default();
-        let document = Html::parse_document(&html_text);
+        let html = resp.text().await.unwrap_or_default();
+        let docs = parse_documents(&html);
 
-        let mut product_count = 0;
+        if docs.is_empty() {
+            println!("[Page {}] 제품 없음 → 크롤링 종료", page_num);
+            break;
+        }
 
-        for product_el in document.select(&product_selector) {
-            product_count += 1;
+        consecutive_empty = 0;
+        println!("[Page {}] {}개 제품 발견", page_num, docs.len());
 
-            let name_el = product_el.select(&name_selector).next();
-            let raw_name = match name_el {
-                Some(el) => el.text().collect::<Vec<_>>().join(" ").trim().to_string(),
+        for doc in docs.iter() {
+            let title = match &doc.title {
+                Some(t) => t,
                 None => {
-                    println!("  → 제품명 없음, 스킵");
+                    println!("  → title 필드 없음, 스킵");
+                    continue;
+                }
+            };
+            let barcode = match barcode_re.captures(title) {
+                Some(cap) => cap[1].to_string(),
+                None => {
+                    println!("  → 바코드 없음, 스킵: {}", title);
                     continue;
                 }
             };
 
-            let barcode = if let Some(caps) = barcode_regex.captures(&raw_name) {
-                caps.get(1).map_or("", |m| m.as_str()).to_string()
-            } else {
-                println!("  → 바코드 없음, 스킵");
-                continue;
-            };
+            let clean_title = barcode_re.replace_all(title, "").to_string().trim().to_string();
 
-            let img_el = product_el.select(&img_selector).next();
-            let raw_image_url = img_el.map(|el| {
-                el.value().attr("data-pagespeed-lazy-src")
-                  .or_else(|| el.value().attr("src"))
-                  .unwrap_or("")
-                  .to_string()
-            }).unwrap_or_default();
-
-            // Resize image URL from 220x180 to 480x440
-            let image_url = if raw_image_url.is_empty() {
-                None
-            } else {
-                let mut url = raw_image_url.replace("220x180", "480x440");
-                if !url.starts_with("http") {
-                    url = format!("https://artdrink.com.ua/{}", url.trim_start_matches('/'));
+            let image_url = match &doc.image {
+                Some(img) => {
+                    format!("https://static.wixstatic.com/media/{}/v1/fill/w_440,h_440,al_c,lg_1,q_80,enc_auto/{}", img.name, img.name)
+                },
+                None => {
+                    println!("  → 이미지 없음, 스킵: {}", title);
+                    continue;
                 }
-                Some(url)
             };
+
+            let type_ = "spirit".to_string();
 
             // Gemini 호출
-            match call_gemini(&client, &api_key, &raw_name).await {
+            match call_gemini(&client, &api_key, &clean_title).await {
                 Ok((product_name, desc, details)) => {
-                    println!("  ✓ {} → {}", raw_name, product_name);
+                    println!("  ✓ {} → {}", clean_title, product_name);
                     all_results.push(OutputProduct {
                         barcode,
                         product_name,
                         desc,
-                        type_: product_type.clone(),
-                        image_url,
+                        type_,
+                        image_url: Some(image_url),
                         details,
                     });
-                    // 저장 주기를 앞으로 당겨 실시간으로 파일에 기록되도록 합니다.
-                    save_output(&all_results);
                 }
                 Err(e) => {
-                    println!("  ✗ {} 실패: {}", raw_name, e);
+                    println!("  ✗ {} 실패: {}", clean_title, e);
                 }
             }
 
             // API 부하 방지
             sleep(Duration::from_millis(500)).await;
         }
-
-        if product_count == 0 {
-            println!("[Page {}] 제품 없음 → 크롤링 종료", page_num);
-            break;
-        }
-
-        println!("[Page {}] {}개 제품 처리 완료.", page_num, product_count);
 
         // 결과 중간 저장 (각 페이지 완료 후)
         save_output(&all_results);

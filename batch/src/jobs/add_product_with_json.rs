@@ -1,13 +1,11 @@
 use crate::db::{
-    barcode_exists, insert_barcode, insert_product, insert_product_image,
-    product_exists_by_name, NewBarcode, NewProduct, NewProductImage,
+    get_product_id_and_details_by_barcode, insert_barcode, insert_product, insert_product_image,
+    product_exists_by_name, update_product_info, NewBarcode, NewProduct, NewProductImage,
 };
 use crate::r2::R2Client;
 use chrono::Utc;
 use diesel::pg::PgConnection;
-use regex::Regex;
 use serde::Deserialize;
-use std::sync::OnceLock;
 use uuid::Uuid;
 
 /// new_product.json에서 읽어올 아이템 구조
@@ -19,6 +17,7 @@ pub struct ProductJsonItem {
     #[serde(rename = "type")]
     pub type_: String,
     pub image_url: Option<String>,
+    pub details: Option<serde_json::Value>,
 }
 
 /// new_product.json 경로 (batch 폴더 내 data 디렉토리)
@@ -49,16 +48,45 @@ pub async fn run(conn: &mut PgConnection, r2: &R2Client) {
     let client = reqwest::Client::new();
 
     for item in &items {
-        // 이름 정제
-        let cleaned_name = clean_product_name(&item.product_name);
+        let cleaned_name = item.product_name.trim().to_string();
         if cleaned_name.is_empty() {
-            println!("{} 추가 실패: 이름이 비어 있음 (원본: {})", item.product_name, item.product_name);
+            println!("추가 실패: 이름이 비어 있음");
             continue;
         }
 
         // 바코드 중복 확인
-        if barcode_exists(conn, &item.barcode) {
-            println!("{} 이미 존재 (바코드: {})", cleaned_name, item.barcode);
+        if let Some((pid, details)) = get_product_id_and_details_by_barcode(conn, &item.barcode) {
+            if details.is_none() {
+                // 정보 갱신
+                let type_ = parse_category(&item.type_);
+                let desc = if item.desc.is_empty() { None } else { Some(item.desc.as_str()) };
+                
+                if let Err(e) = update_product_info(conn, pid, desc, type_, item.details.clone()) {
+                    println!("{} 정보 갱신 실패: {}", cleaned_name, e);
+                } else {
+                    println!("{} 정보 갱신", cleaned_name);
+                }
+
+                // 이미지 처리
+                if let Some(ref url) = item.image_url {
+                    let image_id = Uuid::new_v4();
+                    match download_and_upload_image(&client, r2, url, image_id).await {
+                        Ok(_) => {
+                            let new_image = NewProductImage {
+                                id: image_id,
+                                product_id: Some(pid),
+                                registered: Utc::now().naive_utc(),
+                            };
+                            if let Err(e) = insert_product_image(conn, &new_image) {
+                                println!("{} 이미지 DB 저장 실패: {}", cleaned_name, e);
+                            }
+                        }
+                        Err(e) => println!("{} 이미지 업로드 실패: {}", cleaned_name, e),
+                    }
+                }
+            } else {
+                println!("{} 이미 존재 (바코드: {})", cleaned_name, item.barcode);
+            }
             continue;
         }
 
@@ -80,6 +108,7 @@ pub async fn run(conn: &mut PgConnection, r2: &R2Client) {
                 type_,
                 registered: Utc::now(),
                 embedding: None, // 배치에서는 임베딩 생략
+                details: item.details.clone(),
             };
 
             if let Err(e) = insert_product(conn, &new_product) {
@@ -143,84 +172,14 @@ async fn download_and_upload_image(
     Ok(())
 }
 
-/// crawler/src/main.rs의 clean_product_name과 동일한 로직
-fn clean_product_name(name: &str) -> String {
-    let mut cleaned = name.replace("&quot;", "\"").replace("&amp;", "&");
-    
-    static RE_PARENS: OnceLock<Regex> = OnceLock::new();
-    let re_parens = RE_PARENS.get_or_init(|| Regex::new(r"\(.*?\)").unwrap());
-    cleaned = re_parens.replace_all(&cleaned, " ").to_string();
-    
-    static RE_YEARS: OnceLock<Regex> = OnceLock::new();
-    let re_years = RE_YEARS.get_or_init(|| Regex::new(r"(?i)\b(?:aged\s+)?(\d+)\s*(?:years?(?:\s*old)?|y\.?o\.?)\b").unwrap());
-    cleaned = re_years.replace_all(&cleaned, "${1} Years Old").to_string();
-    
-    static RE_ABV: OnceLock<Regex> = OnceLock::new();
-    let re_abv = RE_ABV.get_or_init(|| Regex::new(r"(?i)\d+(\.\d+)?\s*%\s*(vol\.?)?").unwrap());
-    cleaned = re_abv.replace_all(&cleaned, " ").to_string();
-    
-    static RE_MEASURE: OnceLock<Regex> = OnceLock::new();
-    let re_measure = RE_MEASURE.get_or_init(|| Regex::new(r"(?i)\b\d+(\.\d+)?\s*(ml|cl|lt|l|liter|liters|litre|litres|g|kg|mg|oz|fl\.?\s*oz|lb|lbs)\b").unwrap());
-    cleaned = re_measure.replace_all(&cleaned, " ").to_string();
-    
-    static RE_QTY: OnceLock<Regex> = OnceLock::new();
-    let re_qty = RE_QTY.get_or_init(|| Regex::new(r"(?i)\b(x\s*\d+\s*(pcs|pack|packs|ea)?|\d+\s*(pcs|pack|packs|ea|bottles|cans))\b").unwrap());
-    cleaned = re_qty.replace_all(&cleaned, " ").to_string();
-    
-    static RE_SPAM: OnceLock<Regex> = OnceLock::new();
-    let re_spam = RE_SPAM.get_or_init(|| Regex::new(r"(?i)\b(empty|can only|no drink|used|aluminum|pull tab|beer can|from \d{4})\b").unwrap());
-    cleaned = re_spam.replace_all(&cleaned, " ").to_string();
-    
-    static RE_SYMBOLS: OnceLock<Regex> = OnceLock::new();
-    let re_symbols = RE_SYMBOLS.get_or_init(|| Regex::new(r"[-_—|/·,]").unwrap());
-    cleaned = re_symbols.replace_all(&cleaned, " ").to_string();
-
-    static RE_SPACES: OnceLock<Regex> = OnceLock::new();
-    let re_spaces = RE_SPACES.get_or_init(|| Regex::new(r"\s{2,}").unwrap());
-    cleaned = re_spaces.replace_all(&cleaned, " ").to_string();
-
-    // 이름 끝에 남는 단독 숫자·개수·용량 패턴 반복 제거
-    // 예: "6 pack", "x1", "1 LT", ", 5", ", 0" 등
-    static RE_TRAILING: OnceLock<Regex> = OnceLock::new();
-    let re_trailing = RE_TRAILING.get_or_init(|| {
-        Regex::new(r"(?i)\s+(x\s*\d+|\d+\s*(pack|packs|lt|l|ml|cl|g|kg|oz|pcs|ea|bottles|cans)?|\d+)$").unwrap()
-    });
-    loop {
-        let next = re_trailing.replace(&cleaned, "").to_string();
-        let next = next.trim().trim_end_matches(&[',', '-', ' ', '.'][..]).trim().to_string();
-        if next == cleaned.trim() {
-            break;
-        }
-        cleaned = next;
-    }
-
-    // Remove trailing commas, hyphens, spaces, or dots
-    let trimmed = cleaned.trim().trim_end_matches(&[',', '-', ' ', '.'][..]).trim().to_string();
-
-    // Title Case 변환: 각 단어의 첫 글자를 대문자로
-    trimmed
-        .split_whitespace()
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 /// type 문자열로 카테고리 int 반환
 fn parse_category(type_str: &str) -> i16 {
     let lower = type_str.to_lowercase();
-    if lower.contains("wine") || lower.contains("wines") { return 0; }
+    if lower.contains("wine") { return 0; }
     if lower.contains("whisky") || lower.contains("whiskey") || lower.contains("whiskies") { return 1; }
-    if lower.contains("beer") || lower.contains("beers") { return 2; }
+    if lower.contains("beer") { return 2; }
     if lower.contains("soju") || lower.contains("sake") { return 3; }
-    if lower.contains("liqueur") || lower.contains("spirit") { return 4; }
-    if lower.contains("cocktail") { return 5; }
-    if lower.contains("coffee") { return 6; }
+    if lower.contains("liqueur") || lower.contains("liquor") || lower.contains("spirit") { return 4; }
     if lower.contains("beverage") { return 7; }
     8
 }

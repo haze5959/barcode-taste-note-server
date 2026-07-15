@@ -1,0 +1,1337 @@
+[
+  {
+    "barcode": "075496331891",
+    "product_name": "Angostura Rum 7 Years Old",
+    "desc": "Aged rum from Trinidad and Tobago, distilled from molasses and matured for seven years. This 40% ABV spirit offers a smooth profile with notes of caramel and vanilla.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_e91bb064-d7ae-41c8-9c21-634e5d02626b_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "TT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Angostura",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "075496332201",
+    "product_name": "Angostura Rum Reserva 3 Years Old",
+    "desc": "An aged rum from Trinidad and Tobago, distilled from molasses and matured for three years in oak barrels. It presents a smooth profile with nuanced notes of vanilla, caramel, and mild spice, ideal for crafted cocktails or neat enjoyment.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_1746b6c0-74ea-475c-8988-182c5f18d6d8_500x.png",
+    "details": {
+      "alcohol": 37.5,
+      "country": "TT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Angostura",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "5010677012850",
+    "product_name": "Bacardi Blanca",
+    "desc": "Classic light rum, charcoal filtered for a crisp, smooth profile. Features subtle notes of vanilla and almond, making it a versatile spirit for a wide range of cocktails. Typically produced in Puerto Rico.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_2301c6b3-b9d1-40db-a084-2a8bfeac8f75_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "PR",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bacardi",
+      "style": 402
+    }
+  },
+  {
+    "barcode": "Bacardi Blanca 3LTR",
+    "product_name": "Bacardi Blanca",
+    "desc": "A premium light-bodied white rum, charcoal filtered for exceptional smoothness and clarity. Distilled from molasses, it offers subtle notes of vanilla and almond, ideal for crafting classic cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/FB74D7A0-9174-4305-81F6-DC271C3F6573_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "PR",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bacardi",
+      "style": 402
+    }
+  },
+  {
+    "barcode": "5010677013147",
+    "product_name": "Bacardi Blanca",
+    "desc": "A clear, light-bodied rum, charcoal-filtered for a smooth finish. Distilled from molasses, it offers subtle notes of vanilla and almond, ideal for crafting diverse cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Bacardi_Blanca_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "PR",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bacardi",
+      "style": 402
+    }
+  },
+  {
+    "barcode": "5010677039093",
+    "product_name": "Bacardi Carta Negra",
+    "desc": "A rich dark rum, aged in charred oak barrels. Offers mellow notes of caramel, vanilla, and spices. Ideal for mixing in classic cocktails, known for its smooth finish and deep color.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_2f713bb2-3355-4793-93f0-25deecf90a1e_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "PR",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bacardi",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "5010677028899",
+    "product_name": "Bacardi Carta Oro Gold",
+    "desc": "A premium golden rum, aged in charred oak barrels to achieve a smooth profile with notes of vanilla, caramel, toasted almond, and banana. Versatile for cocktails or neat enjoyment.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_edf2b554-ffcd-4582-b4ae-6a11dd2aa315_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "PR",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bacardi",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "5010677048071",
+    "product_name": "Bacardi Limon",
+    "desc": "A citrus-flavored white rum, distilled from molasses. Infused with natural lemon, lime, and grapefruit essences, offering a vibrant, zesty profile. Popular for mixing cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_c04d77ac-9ffd-4211-a19e-8c1fe30d4079_500x.png",
+    "details": {
+      "alcohol": 32.0,
+      "country": "US",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bacardi",
+      "style": 402
+    }
+  },
+  {
+    "barcode": "5010677740036",
+    "product_name": "Bacardi Oakheart",
+    "desc": "Caribbean spiced rum, aged in charred oak barrels and blended with natural spices like vanilla, caramel, and cinnamon. Offers a smooth, rich flavor profile.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_557867b5-6eaf-4b29-858f-5b89a9996805_500x.png",
+    "details": {
+      "alcohol": 35.0,
+      "country": "PR",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bacardi",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "7610113001516",
+    "product_name": "Bacardi Reserva 8 Years Old",
+    "desc": "Premium aged rum, crafted from molasses and distilled, then matured for eight years in oak barrels. Offers rich notes of dried fruit, vanilla, and butterscotch. A sophisticated spirit.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_dbeeefe9-694f-416c-b2ac-37aac2e5c821_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "PR",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bacardi",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7610113007518",
+    "product_name": "Bacardi Spiced",
+    "desc": "A vibrant spiced rum crafted from fermented molasses and distilled Caribbean rum, infused with natural flavors like vanilla and cinnamon, offering a smooth, aromatic profile. Typically bottled at 35% ABV.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_4c4d669c-aa01-4ab7-8c8a-9679cb12243a_500x.png",
+    "details": {
+      "alcohol": 35.0,
+      "country": "PR",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bacardi",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "7401005008108",
+    "product_name": "Botran 15 Years Solera Reserva",
+    "desc": "Premium aged rum, matured for 15 years using the Solera system. Offers a rich profile of caramel, vanilla, and dried fruits, culminating in a smooth, oak-inflected finish. Contains 40% alcohol.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_63b4a073-bde0-413d-962f-2ac09be0e55e_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "GT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Botran",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7460855209141",
+    "product_name": "Brugal 1888 Grand Reserve",
+    "desc": "Double-aged Dominican rum, matured first in ex-bourbon American oak and then in European sherry casks. Presents a smooth profile with notes of vanilla, caramel, and dried fruits, leading to a lingering, rich finish. Marketed for discerning palates.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Brugal_1888_Ron_Gran_Reserva_Rum_40_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "DO",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Brugal",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "813497006215",
+    "product_name": "Bumbu",
+    "desc": "A spiced rum distilled in Barbados, crafted from sugar cane and infused with natural spices. Offers notes of banana, vanilla, and caramel. Typically bottled at 40% ABV, popular in the premium spirits market.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/Bumbu_40_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "BB",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 404
+    }
+  },
+  {
+    "barcode": "813497006154",
+    "product_name": "Bumbu XO",
+    "desc": "An ultra-premium dark rum from Barbados, blended from rums aged up to 18 years in bourbon barrels and finished in sherry casks. Offers rich aromas of toffee, oak, and vanilla with notes of orange zest and spice.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/Bumbu_XO_40_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "BB",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bumbu Rum Company",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "5060708440053",
+    "product_name": "Caleno Dark & Spicy",
+    "desc": "A non-alcoholic distilled spirit alternative, featuring a vibrant blend of dark and spicy botanicals. Crafted for a sophisticated, alcohol-free experience, ideal for cocktail creation.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_4aa6d40c-6bbd-4f0d-95c9-d2e7df6b6837_500x.png",
+    "details": {
+      "alcohol": 0.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 700
+    }
+  },
+  {
+    "barcode": "8718444161585",
+    "product_name": "Cannabis Sativa",
+    "desc": "A spiced rum produced in Jamaica, infused with Cannabis Sativa botanicals. Offers a distinct herbal aroma and flavor profile, reflecting its unique botanical blend. Bottled at 37.5% alcohol by volume.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_d9d930a8-36a4-4cba-923e-2a4bb76b767f_500x.png",
+    "details": {
+      "alcohol": 37.5,
+      "country": "JM",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 404
+    }
+  },
+  {
+    "barcode": "5000281034980",
+    "product_name": "Black Spiced",
+    "desc": "A dark, spiced rum, distilled from Caribbean sugarcane and aged, then expertly blended with a proprietary selection of bold, aromatic spices. Presents a rich, complex flavor profile. Alc. 40%.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_f1a8d4b1-d9b1-4515-8491-ac7dece65868_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Captain Morgan",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "087000006935",
+    "product_name": "Captain Morgan Dark Rum",
+    "desc": "A rich, full-bodied dark rum distilled from sugarcane molasses, aged in charred oak barrels to achieve its deep hue and complex profile. Features notes of caramel, vanilla, and dried fruit, with a smooth finish. Ideal for sipping or in robust cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_c7e2c1ab-5119-42a1-8667-be24464e7235_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Captain Morgan",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "087000652286",
+    "product_name": "Captain Morgan Dark Rum",
+    "desc": "A rich dark rum, distilled from molasses and matured in charred oak barrels, offering a smooth character with notes of caramel, vanilla, and oak. Versatile for cocktails or sipping.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Captain_Morgan_Dark_Rum_70cl_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Captain Morgan",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "5000281038445",
+    "product_name": "Captain Morgan Spiced Gold And Cola",
+    "desc": "A ready-to-drink blend of Captain Morgan Spiced Gold rum and cola. This convenient beverage offers spiced rum notes balanced with the sweet, effervescent taste of cola. Produced for easy consumption, with an ABV of 5%.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/IMG-9694_500x.png",
+    "details": {
+      "alcohol": 5.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Captain Morgan",
+      "style": 500
+    }
+  },
+  {
+    "barcode": "5000299223055",
+    "product_name": "Captain Morgan Spiced Gold",
+    "desc": "A Caribbean spiced rum crafted from aged rums and natural flavors, presenting notes of rich vanilla, brown sugar, cinnamon, and dried fruit. Smooth and medium-bodied, it's popular for mixing.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_3b627040-3c73-4414-83dc-a7bc684b5a8f_500x.png",
+    "details": {
+      "alcohol": 35.0,
+      "country": "VI",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Captain Morgan",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "5000299223017",
+    "product_name": "Captain Morgan Spiced Gold",
+    "desc": "A premium Caribbean spiced rum crafted from a blend of molasses-based rums, distilled and aged before being infused with natural flavors and spices like vanilla, cinnamon, and caramel. Known for its smooth, aromatic profile.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/Captain_Morgan_Spiced_Gold_70cl_500x.png",
+    "details": {
+      "alcohol": 35.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Captain Morgan",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "5000281040899",
+    "product_name": "Captain Morgan White",
+    "desc": "Captain Morgan White Rum is a charcoal-filtered light rum, distilled from molasses. It offers a clean, smooth profile with subtle tropical fruit notes, ideal for refreshing cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_0c9f3aef-11c9-4ade-b4f5-11630bccc141_500x.png",
+    "details": {
+      "alcohol": 37.5,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Captain Morgan",
+      "style": 402
+    }
+  },
+  {
+    "barcode": "8500000652060",
+    "product_name": "Conde De Cuba",
+    "desc": "A column-distilled light rum, often charcoal filtered for clarity. Exhibits a clean palate with subtle tropical fruit and vanilla notes, ideal for cocktails. Produced at 38% alcohol by volume.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/MGL7905_500x.jpg",
+    "details": {
+      "alcohol": 38.0,
+      "country": "CU",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 402
+    }
+  },
+  {
+    "barcode": "5011166056775",
+    "product_name": "Dead Man's Fingers",
+    "desc": "Premium spiced rum, crafted from Caribbean rum and infused with exotic spices like orange, nutmeg, vanilla, and caramel. Offers a smooth, sweet profile suitable for cocktails or sipping.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_0d4af565-3d1c-449d-997d-97d75255d6fc_500x.png",
+    "details": {
+      "alcohol": 37.5,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 404
+    }
+  },
+  {
+    "barcode": "7707284029002",
+    "product_name": "Dictador 12 Year Old",
+    "desc": "Colombian dark rum, distilled from virgin sugarcane honey and aged for 12 years in ex-bourbon oak barrels. Exhibits notes of caramel, vanilla, dried fruit, and a smooth, balanced finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Dictador_12_Year_Old_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "CO",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Dictador",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "5902670846023",
+    "product_name": "Dictador 12 Years Old",
+    "desc": "Aged Colombian rum, distilled and matured for 12 years in oak barrels using a solera system. Exhibits rich flavors of honey, coffee, caramel, and cocoa with a smooth finish, appealing to sipping spirit enthusiasts.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_5c0226c5-0e38-44b1-bbcc-cc3b9d533ec3_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "CO",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Dictador",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7707284029156",
+    "product_name": "Dictador 20 Years",
+    "desc": "Premium Colombian dark rum, solera aged for 20 years. Features rich notes of honey, coffee, and vanilla, offering a smooth and complex profile with a long finish. Marketed for connoisseurs.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_7154bafa-58d5-416c-bae0-850b987912e8_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "CO",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Dictador",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7594003626150",
+    "product_name": "Diplomatico Ambassador",
+    "desc": "Aged for a minimum of twelve years in ex-bourbon and Oloroso sherry casks, this Venezuelan dark rum offers complex notes of dried fruit, chocolate, and coffee. Bottled at 47% ABV.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/E1385F53-CE91-4E73-8CA3-6386CAD94728_500x.png",
+    "details": {
+      "alcohol": 47.0,
+      "country": "VE",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Destilerías Unidas S.A.",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7594003629878",
+    "product_name": "Diplomatico Mantuano",
+    "desc": "Venezuelan blended rum, crafted from sugar cane honeys and molasses. Aged up to eight years in white oak casks, it offers a complex profile of dried fruits, vanilla, and oak, suitable for sipping or cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_f9b84dc5-f320-4c0e-80a7-9489612bc6df_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "VE",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Diplomatico",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7594003626624",
+    "product_name": "Diplomatico Mantuano",
+    "desc": "A premium Venezuelan dark rum, Mantuano is a blend of column, batch kettle, and pot still distillates, aged up to 8 years. It offers a rich profile of dried fruits, oak, and vanilla, ideal for sipping or cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Diplomatico_Mantuano_70cl_40_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "VE",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Diplomatico",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7594003624927",
+    "product_name": "Diplomatico Reserva Exclusiva",
+    "desc": "A premium Venezuelan dark rum, blended from pot still heavy rums and column still light rums, aged up to 12 years. Exhibits rich notes of caramel, orange peel, vanilla, and toffee, ideal for sipping.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/Diplomatico_Reserva_Exclusiva_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "VE",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Diplomatico",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7594003629298",
+    "product_name": "Diplomatico Single Vintage",
+    "desc": "This premium Venezuelan rum, distilled in 2008, undergoes prolonged aging in oak barrels. It presents a rich palate with notes of dried fruit, dark chocolate, and spice, bottled at 43% ABV.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_4307cdf0-1e60-4106-a94c-dfb8fc387303_500x.png",
+    "details": {
+      "alcohol": 43.0,
+      "country": "VE",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Diplomatico",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "4809015157046",
+    "product_name": "Don Papa 10 Years",
+    "desc": "Aged for 10 years in oak barrels, this Philippine dark rum offers a rich profile with notes of dried fruit, vanilla, and oak, culminating in a smooth, lingering finish. Bottled at 43% ABV.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/IMG-5538_500x.png",
+    "details": {
+      "alcohol": 43.0,
+      "country": "PH",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Don Papa",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "4809015157497",
+    "product_name": "Don Papa Baroko",
+    "desc": "A premium spiced rum from the Philippines, aged in ex-bourbon oak barrels. Characterized by rich vanilla, honey, and candied fruit notes, offering a smooth, sweet palate.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_897bafe3-53de-4875-ae6f-1eb11efea6af_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "PH",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "The Bleeding Heart Rum Company",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "4809015157183",
+    "product_name": "Don Papa Masskara",
+    "desc": "A premium small-batch Philippine rum, barrel-aged and infused with calamansi citrus and honey. This special edition offers a vibrant, fruity, and subtly sweet profile, ideal for sipping or cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_5dc950d7-d039-473f-a671-4f0ae5e5c3d1_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "PH",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Don Papa",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "4809015157299",
+    "product_name": "Don Papa 7 Years Old",
+    "desc": "A premium dark rum from the Philippines, column-distilled from sugarcane molasses and aged. Features a smooth profile with notes of vanilla, honey, and candied fruits, offering a rich finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/Don_Papa_Rum_7_year_old_Shaker_Gift_box_70cl_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "PH",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Don Papa",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "4806538770011",
+    "product_name": "Don Papa 7 Years Old",
+    "desc": "A premium aged rum from the Philippines, distilled from sugarcane molasses and matured in oak barrels. It offers a smooth profile with notes of vanilla, dried fruits, and a hint of orange peel, leading to a long, sweet finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Don_Papa_Rum_7YO_70cl_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "PH",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bleeding Heart Rum Company",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "8715151120799",
+    "product_name": "El Dorado 12",
+    "desc": "Aged for 12 years in oak barrels, this Demerara rum from Guyana offers notes of tropical fruit, brown sugar, and spice. It is typically bottled at 40% ABV, making it a smooth sipping spirit.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_857b3bc6-997e-4584-9cac-bbdf54d44e0f_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "GY",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Demerara Distillers",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "8715151150734",
+    "product_name": "El Dorado 15 Years",
+    "desc": "An aged Guyanese rum, a blend of select distillates matured for at least 15 years in oak barrels. Offers a complex profile of dried fruit, spice, and toasted oak. A premium spirit.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/IMG-6755_500x.png",
+    "details": {
+      "alcohol": 43.0,
+      "country": "GY",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Demerara Distillers Limited",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7501033200038",
+    "product_name": "El Ron Prohibido Habanero",
+    "desc": "A premium 12-year-old dark rum, aged using the Solera method. It features a unique finish in barrels previously holding sweet Habanero wine, imparting rich notes of dried fruits, caramel, and vanilla. Alc. 40%.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/El_Ron_Prohibido_Habanero_Solera_12_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "MX",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Licores Veracruz",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7501033200137",
+    "product_name": "El Ron Prohibido 15 Years Old Gran Reserva",
+    "desc": "Aged rum crafted from sugarcane molasses, typically using a Solera system for up to 15 years. This Gran Reserva offers rich notes of dried fruits, vanilla, and caramel, with a smooth, complex finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_c426aa87-f5a3-4dec-aacc-c3352db231a4_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "MX",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Ron Prohibido",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7431008107003",
+    "product_name": "Flor De Cana 12 Years",
+    "desc": "Premium aged dark rum from Nicaragua, distilled from molasses and matured for 12 years in bourbon barrels. Exhibits notes of caramel, vanilla, and baking spice, with a smooth finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Flor_De_Cana_12_Years_GB_40_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "NI",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Flor De Cana",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7431008105566",
+    "product_name": "Flor De Cana 12 Years Old",
+    "desc": "Aged 12 years in oak barrels, this premium rum from Nicaragua offers a smooth, rich profile with notes of vanilla, caramel, and baking spices. Excellent for sipping or cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/IMG-6753_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "NI",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Compania Licorera de Nicaragua",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "L-52-906-00",
+    "product_name": "Flor De Cana 15 Years Terra",
+    "desc": "A premium aged rum from Nicaragua, matured for fifteen years in oak barrels. Exhibits complex notes of caramel, vanilla, and toasted nuts, with a smooth, dry finish. Ideal for sipping.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/IMG-6750_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "NI",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Flor De Cana",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7431008107027",
+    "product_name": "Flor De Cana 18 Years",
+    "desc": "Aged 18 years, this ultra-premium Nicaraguan rum offers rich notes of caramel, vanilla, and dark chocolate. Sustainably produced, it’s naturally aged in bourbon barrels, resulting in a smooth, complex spirit.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Flor_De_Cana_18_Years_GB_40_70cl_Buy_Rum_Malta_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "NI",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Flor de Caña",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7431008108529",
+    "product_name": "Flor De Cana 25 Years",
+    "desc": "Aged for 25 years in bourbon barrels, this ultra premium rum from Nicaragua offers a complex profile of caramel, vanilla, and dark chocolate with a smooth, long finish. Ideal for sipping.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_33255423-e995-40c2-96f3-0b68f534e5ce_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "NI",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Flor De Cana",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7431008105009",
+    "product_name": "Flor De Cana Grand Reserva",
+    "desc": "Aged premium Nicaraguan rum, distilled from molasses and matured for seven years. Presents notes of caramel, vanilla, and toasted oak, with a smooth, medium-bodied palate. Ideal for sipping or classic cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_00d632a7-5db6-4dfc-a9f3-e308f0bbbc4d_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "NI",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Flor De Cana",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "8501110080231",
+    "product_name": "Havana Club Anejo 3 Years Old",
+    "desc": "Aged Cuban rum, distilled from sugarcane molasses and matured for three years in oak barrels. Exhibits notes of vanilla and caramel with a smooth finish, popular in cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Havana_Club_Anejo_3YO_70cl_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "CU",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Havana Club",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "8501110080439",
+    "product_name": "Havana Club Anejo 7 Years Old",
+    "desc": "A premium Cuban dark rum, distilled from sugarcane molasses and aged for seven years in oak barrels. Features a complex profile with notes of honey, vanilla, and dried fruit, culminating in a smooth, rich finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Havana_Club_Anejo_7YO_40_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "CU",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Havana Club",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "8501110080927",
+    "product_name": "Havana Club Anejo Especial",
+    "desc": "A premium Cuban gold rum, distilled from local sugarcane molasses and double aged in white oak barrels. It offers a smooth profile with notes of vanilla, caramel, and hints of spice.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_5cb6a39f-3b93-4619-9d73-36b800395e99_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "CU",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Havana Club",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "8501110089852",
+    "product_name": "Havana Club Seleccion De Maestros",
+    "desc": "A premium Cuban rum, triple-barrel aged and handcrafted by Maestros Roneros. Features complex notes of cocoa, coffee, tobacco, and spices, bottled at 45% ABV for an intense profile.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_7e58c0d7-ec78-4c36-adba-033cf7da0d1e_500x.png",
+    "details": {
+      "alcohol": 45.0,
+      "country": "CU",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Havana Club",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "811538017961",
+    "product_name": "Kraken 47 Black Spiced Rum",
+    "desc": "A dark Caribbean rum infused with a blend of exotic spices, including vanilla, cinnamon, and clove. Distilled from molasses, it offers a bold, rich flavor profile with notes of treacle and pepper, suitable for mixing or sipping.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/IMG-6278_500x.png",
+    "details": {
+      "alcohol": 47.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 404
+    }
+  },
+  {
+    "barcode": "811538013710",
+    "product_name": "Kraken Black Spiced",
+    "desc": "A Caribbean dark spiced rum, distilled from molasses and aged, then infused with a proprietary blend of spices. Offers bold notes of vanilla, ginger, and clove, with a rich, smooth finish. Ideal for mixing.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_99319a9c-3ca8-487f-938c-4751a3166c54_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "TT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Kraken Rum",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "Kraken Black Spiced Rum - #1 'BLACK' Unknown Deep 70cl 40%",
+    "product_name": "Kraken Black Spiced",
+    "desc": "A dark, Caribbean-sourced spiced rum, distilled from molasses and infused with a proprietary blend of spices. Known for its rich, robust flavor profile with notes of vanilla and caramel. 40% ABV.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_c5443a17-047b-4f33-a48e-8b7c4986c41f_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 404
+    }
+  },
+  {
+    "barcode": "Kraken Black Spiced Rum - #2 'Blue' Unknown Deep 70cl 40%",
+    "product_name": "Kraken Black Spiced",
+    "desc": "A robust dark spiced rum, distilled from molasses and infused with a proprietary blend of exotic spices. It delivers prominent notes of vanilla, cinnamon, and clove. Bottled at 40% alcohol by volume.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/IMG-5588_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Kraken",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "Kraken Black Spiced Rum - #3 'Orange' Unknown Deep 70cl 40%",
+    "product_name": "Kraken Black Spiced",
+    "desc": "A dark, spiced rum crafted from molasses, infused with a blend of natural spices, offering notes of caramel, vanilla, and exotic aromatics. Bottled at 40% alcohol by volume, it's suitable for cocktails or sipping.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/IMG-5586_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "US",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Kraken",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "811538013062",
+    "product_name": "Kraken Black Spiced Rum",
+    "desc": "A dark, Caribbean spiced rum, distilled from molasses and infused with natural spices such as vanilla, cinnamon, and ginger. This spirit offers a rich, sweet flavor profile with a 40% ABV.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Kraken_Black_Spiced_Rum_40_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "TT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Proximo Spirits",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "7436946951930",
+    "product_name": "Kraken Black Spiced Rum",
+    "desc": "A Caribbean dark spiced rum, typically produced from molasses and aged, then infused with exotic spices like cinnamon, ginger, and clove. Features a rich, robust flavor with notes of vanilla and molasses. Often used in cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/image_64a7476b-5270-44f4-a5e4-c220941fe893_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 404
+    }
+  },
+  {
+    "barcode": "8500000191026",
+    "product_name": "Legendario Elixir De Cuba",
+    "desc": "A Cuban-origin sweetened rum-based liqueur, often described as a punch, blended with aged rums and macerated raisins. It presents a smooth, sweet profile with notes of dried fruit and vanilla. Marketed at 34% alcohol by volume.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Legendario_Elixir_De_Cuba_Rum_Punch_34_70cl_500x.png",
+    "details": {
+      "alcohol": 34.0,
+      "country": "CU",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Legendario",
+      "style": 412
+    }
+  },
+  {
+    "barcode": "8500000191033",
+    "product_name": "Legendario Anejo 9 Years Old",
+    "desc": "A premium Cuban rum, distilled from sugarcane molasses and aged for nine years in oak barrels. This spirit offers a smooth, complex profile with notes of vanilla, caramel, and spice, culminating in a refined finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/Legendario_Rum_Anejo_9_40_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "CU",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 403
+    }
+  },
+  {
+    "barcode": "75970185",
+    "product_name": "Diplomatico Reserva Exclusiva",
+    "desc": "A sophisticated Venezuelan dark rum, crafted from a blend of aged pot and column still distillates. Exhibits rich notes of caramel, orange peel, and vanilla, ideal for sipping.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Miniature_-_Diplomatico_Reserva_Exclusiva_5CL_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "VE",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Diplomatico",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "026964500141",
+    "product_name": "Flor De Cana 12 Years",
+    "desc": "Premium, naturally slow-aged rum from Nicaragua. Exhibits notes of vanilla, caramel, and baking spices with a smooth finish. Produced sustainably.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Miniature_-_Flor_De_Cana_12_Years_5CL_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "NI",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Flor De Cana",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "811538010580",
+    "product_name": "Kraken Black Spiced Rum",
+    "desc": "Dark, Caribbean rum infused with exotic spices, including vanilla, cinnamon, and clove. Distilled from molasses, it offers a rich, smooth profile, ideal for cocktails or sipping. ABV 47%.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/Miniature_-_Kraken_Black_Spiced_Rum_Mini_47_5cl_500x.png",
+    "details": {
+      "alcohol": 47.0,
+      "country": "TT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Kraken",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "5010677010115",
+    "product_name": "Bacardi Blanca",
+    "desc": "A classic light-bodied white rum, charcoal filtered for exceptional smoothness and a clean profile. Features subtle notes of vanilla and almond. Crafted in Puerto Rico, ideal for cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Miniature_Bacardi_Blanca_5cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "PR",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Bacardi",
+      "style": 402
+    }
+  },
+  {
+    "barcode": "5010327459004",
+    "product_name": "Sailor Jerry",
+    "desc": "A distinctive spiced rum, meticulously blended in the Caribbean. Characterized by rich notes of vanilla, cinnamon, and a hint of lime, offering a smooth and robust profile.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_ae549215-8935-45da-b0ce-dab751cca54f_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Sailor Jerry",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "5016978101019",
+    "product_name": "Mocambo Anejo 10 Years",
+    "desc": "A premium Mexican rum, matured for 10 years in oak barrels. Exhibits complex notes of caramel, vanilla, and dried fruit, with a smooth, lingering finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_f1027b23-d4a3-4e17-9f46-82c4e27d8aba_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "MX",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Mocambo",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "9501007224501",
+    "product_name": "Mount Gay Black Barrel Double Cask",
+    "desc": "A premium Barbados rum, double aged in ex-bourbon and heavily charred oak casks. Offers rich notes of spice, vanilla, and dried fruit with a smooth, complex finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_78839c17-0039-4c03-9dad-5a6e2706ea70_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "BB",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Mount Gay",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "9501007863502",
+    "product_name": "Mount Gay XO Triple Cask",
+    "desc": "Mount Gay XO Triple Cask is a premium Bajan rum, meticulously crafted and aged in three distinct cask types. This complex spirit presents rich notes of vanilla, caramel, and dried fruit, culminating in a smooth, lingering finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Mount_Gay_-_XO_Triple_Cask_70cl_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "BB",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Mount Gay",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "3012993060180",
+    "product_name": "Negrita Anejo Reserve",
+    "desc": "An aged dark rum, typically matured in oak barrels, offering a complex profile with notes of caramel, vanilla, and dried fruit. It presents a rich amber hue and a smooth finish, ideal for sipping or crafting cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_8cb3f2a1-77af-474e-8e3a-360e02424fba_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 403
+    }
+  },
+  {
+    "barcode": "3012991502002",
+    "product_name": "Negrita White",
+    "desc": "A clear, distilled sugarcane spirit, unaged or charcoal-filtered for clarity. Characterized by a light body and subtle, often sweet or fruity notes, ideal as a versatile base for various cocktails.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_52622616-36f8-4b5a-b732-40170c4cddf3_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "FR",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Negrita",
+      "style": 402
+    }
+  },
+  {
+    "barcode": "8711114481044",
+    "product_name": "Old Captain Spiced Rum",
+    "desc": "A rich spiced rum, crafted from premium Caribbean sugarcane molasses. Infused with natural spices, it offers warm notes of vanilla, cinnamon, and nutmeg. Ideal for cocktails or neat enjoyment, typically 35% ABV.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/8BD46C7A-8A01-4D17-ACE4-BFC289AD5BAF_500x.png",
+    "details": {
+      "alcohol": 35.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 404
+    }
+  },
+  {
+    "barcode": "7466871102237",
+    "product_name": "Opthimus 15 Years",
+    "desc": "Premium Dominican dark rum, meticulously aged for 15 years in oak barrels, offering a complex profile of dried fruits, caramel, and a smooth, mellow finish. Bottled at 38% ABV.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Opthimus_15_Years_GB_70cl_38_500x.png",
+    "details": {
+      "alcohol": 38.0,
+      "country": "DO",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Opthimus",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "8028286000325",
+    "product_name": "Pampero Aniversario",
+    "desc": "An aged Venezuelan dark rum, crafted from fermented sugarcane molasses and distilled. This premium spirit offers rich notes of caramel, vanilla, and oak, culminating in a smooth, complex finish. Bottled at 40% ABV.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Pampero_Aniversario_Rum_70cl_40_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "VE",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Pampero",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "3460410533524",
+    "product_name": "Planteray XO",
+    "desc": "An extra old (XO) rum, expertly aged for an extended period in oak barrels. Offers complex notes of dried fruits, vanilla, and spice with a smooth, rich palate. Bottled at 40% ABV.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/Blank_71_500x.jpg",
+    "details": {
+      "alcohol": 40.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 403
+    }
+  },
+  {
+    "barcode": "088320053371",
+    "product_name": "Pusser's 15 Years Old",
+    "desc": "Aged 15 years, this blended dark rum offers a rich, complex flavor with notes of dried fruit, molasses, and oak. Matured in wood barrels, it embodies the traditional style of naval rum.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/IMG-6743_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Pusser's",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "088320005400",
+    "product_name": "Pusser's Navy",
+    "desc": "A full-bodied, traditional navy rum, blended to the original Admiralty recipe. It presents a rich, complex flavor profile. Bottled at 40% alcohol by volume.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_8924bf47-3776-49cf-a118-4ccbd0f8ffb0_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 403
+    }
+  },
+  {
+    "barcode": "8438001405883",
+    "product_name": "Relicario Superior",
+    "desc": "A premium aged rum crafted from sugarcane derivatives. Meticulously matured to develop a smooth, rich profile with notes of vanilla, dried fruit, and oak, culminating in a balanced finish. Contains 40% alcohol.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_80eee372-c309-4a0d-a779-046afe5187ea_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7461323129459",
+    "product_name": "Ron Barcelo Imperial",
+    "desc": "A premium Dominican dark rum, meticulously aged in oak barrels. This spirit offers a smooth, complex profile with notes of dried fruits, caramel, and vanilla, culminating in a refined finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_9d8007f3-5b1f-4c53-83b4-6db2a39b15fc_500x.png",
+    "details": {
+      "alcohol": 38.0,
+      "country": "DO",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Barceló",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "5712718002256",
+    "product_name": "Ron Esclavo XO",
+    "desc": "An extra old rum, matured in oak barrels, offering complex notes of caramel, vanilla, and dried fruits. Produced in the Dominican Republic with a 42% alcohol content.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_001d87f6-6c53-4caf-b69a-671b9d457272_500x.png",
+    "details": {
+      "alcohol": 42.0,
+      "country": "DO",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 403
+    }
+  },
+  {
+    "barcode": "4280001759602",
+    "product_name": "Ron Piet 10 Years Old",
+    "desc": "Aged for 10 years in bourbon barrels, this dark rum presents a refined profile with notes of vanilla, oak, and caramel. With 40% alcohol by volume, it offers a smooth, complex finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_525aa34e-0f3a-4f14-9e90-d7acfb66814e_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": null,
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7401005008603",
+    "product_name": "Ron Zacapa Cent 23",
+    "desc": "A premium Guatemalan aged rum, blended from rums aged 6-23 years using the Solera system. Offers rich notes of caramel, vanilla, nutmeg, and dried fruit, with a smooth finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Ron_Zacapa_Cent_23_40_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "GT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Zacapa",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "5010103946049",
+    "product_name": "Ron Zacapa 23",
+    "desc": "Premium Guatemalan aged rum, matured using the Solera system. Offers rich notes of dried fruits, caramel, vanilla, and spice, with a notably smooth finish.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_b924e914-ee4a-41d3-840f-c25eb4564499_500x.png",
+    "details": {
+      "alcohol": null,
+      "country": "GT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Ron Zacapa",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7401005008610",
+    "product_name": "Ron Zacapa XO",
+    "desc": "An ultra-premium Guatemalan rum, solera-aged in a series of casks, including ex-bourbon, sherry, and French oak. Features complex notes of dried fruit, spice, and dark chocolate.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Ron_Zacapa_XO_40_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "GT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": 403
+    }
+  },
+  {
+    "barcode": "4989501114569",
+    "product_name": "Ryoma Japanese Rum",
+    "desc": "A unique Japanese rum, distilled from sugarcane molasses and aged. It offers a smooth profile with notes of tropical fruit and subtle spice, appealing to connoisseurs of craft spirits.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_aff63add-7a1b-486e-b3d2-130a553c325d_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "JP",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": null,
+      "style": null
+    }
+  },
+  {
+    "barcode": "5010327405223",
+    "product_name": "Sailor Jerry Rum",
+    "desc": "A bold spiced rum distilled from Caribbean molasses, infused with natural spices and flavors like vanilla and cinnamon. Known for its smooth profile and robust character, appealing to spiced spirit enthusiasts.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/Sailor_Jerry_Rum_40_70cl_500x.png",
+    "details": {
+      "alcohol": 40.0,
+      "country": "US",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Sailor Jerry",
+      "style": 404
+    }
+  },
+  {
+    "barcode": "7401005008634",
+    "product_name": "Zacapa Edicion Negra",
+    "desc": "Premium Guatemalan dark rum, aged in selected charred casks using the Sistema Solera at high altitude. Presents notes of dark chocolate, dried fruit, and smoky spice, with a rich, intense profile.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/files/Zacapa_Edicion_Negra_GB_43_70cl_500x.png",
+    "details": {
+      "alcohol": 43.0,
+      "country": "GT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Zacapa",
+      "style": 403
+    }
+  },
+  {
+    "barcode": "7401005009754",
+    "product_name": "Zacapa Royal Solera Gran Reserve Especial",
+    "desc": "A premium Guatemalan rum aged using the traditional Solera system. This complex spirit offers rich notes of dried fruits, vanilla, caramel, and spice, with a smooth, lingering finish. Marketed as a luxury sipping rum.",
+    "type": "spirit",
+    "image_url": "https://spades.com.mt/cdn/shop/products/image_79ba2fa4-0019-422d-be29-9c3ca5f0d09b_500x.png",
+    "details": {
+      "alcohol": 45.0,
+      "country": "GT",
+      "grape": null,
+      "ibu": null,
+      "manufacturer": "Zacapa",
+      "style": 403
+    }
+  }
+]

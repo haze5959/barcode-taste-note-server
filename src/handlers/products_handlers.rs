@@ -19,6 +19,17 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use log::error;
 
+/// 제품명 벡터 검색의 L2 거리 임계값 (이 값 미만이면 유사 제품으로 간주).
+///
+/// Cohere embed-multilingual-v3.0(1024차원, 정규화 벡터)으로 실측한 거리 분포
+/// (영문↔영문 + 한글 검색어→영문 제품명 교차언어 포함):
+///   - 매칭(동일 제품, 교차언어 포함):  L2 0.78 ~ 1.04  (예: '하이네켄'→'Heineken' 0.99, '기네스'→'Guinness' 1.04)
+///   - 비매칭(서로 다른 제품):          L2 1.08 ~ 1.21  (주류끼리 의미가 가까운 0.99 예외 1건)
+/// 교차언어 매칭(최대 1.04)까지 포함하고 명확한 비매칭(≥1.075)은 제외하도록 1.07을 컷오프로 사용한다.
+/// LIKE 실패 시의 폴백 검색이라 재현율을 우선하며, 결과는 거리순 정렬이므로 근소한 오탐은 하위에 노출된다.
+/// 운영 데이터 분포에 따라 추후 보정 가능.
+const PRODUCT_SEARCH_L2_THRESHOLD: f64 = 1.07;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProductParams {
     pub name: String,
@@ -27,6 +38,7 @@ pub struct CreateProductParams {
     pub type_: i16,
     pub barcode_id: Option<String>,
     pub image_id: Option<Uuid>,
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -104,12 +116,16 @@ pub async fn create_product(
         return Ok(HttpResponse::Ok().json(resp));
     }
 
+    let barcode_opt = item_inner.barcode_id.clone();
     let db_check = db.clone();
     let name_check = item_inner.name.clone();
     let barcode_check = item_inner.barcode_id.clone();
 
     // 동일한 이름의 제품이 이미 있으면 바코드만 연결하고 바로 반환
     if let Some(product) = web::block(move || db_check_and_attach_barcode(&mut db_check.get().unwrap(), &name_check, barcode_check.as_deref())).await?? {
+        if let Some(ref barcode_id) = barcode_opt {
+            let _removed = crate::utils::logger::delete_fail_barcode(barcode_id);
+        }
         let response = CommonResponse { result: true, data: product, error: None };
         return Ok(HttpResponse::Ok().json(response));
     }
@@ -118,6 +134,7 @@ pub async fn create_product(
     if item_inner.desc.as_ref().map_or(true, |s: &String| s.trim().is_empty()) {
         if let Some(info) = crate::utils::gemini::generate_product_info_with_gemini(&item_inner.name).await {
             item_inner.desc = Some(info.description);
+            item_inner.details = info.details;
         }
     }
 
@@ -132,6 +149,7 @@ pub async fn create_product(
                     note_id: None,
                     user_id: None,
                     registered: chrono::Utc::now(),
+                    public_scope: None,
                 };
                 let db_clone_img = db.clone();
                 let _ = web::block(move || {
@@ -149,12 +167,17 @@ pub async fn create_product(
     let embedding = match crate::utils::openai::get_embedding(&item_inner.name).await {
         Ok(vec) => Some(vec),
         Err(e) => {
-            error!("[OpenAI Embedding Error] {}", e);
+            error!("[Cohere Embedding Error] {}", e);
             None
         }
     };
 
     let product = web::block(move || db_create_product(db, item_inner, embedding)).await??;
+
+    if let Some(ref barcode_id) = barcode_opt {
+        let _removed = crate::utils::logger::delete_fail_barcode(barcode_id);
+    }
+
     let response = CommonResponse {
         result: true,
         data: product,
@@ -175,7 +198,7 @@ pub async fn create_product_by_ai(
     let item_inner = item.into_inner();
 
     // 1. Rate Limiting Check
-    if !crate::utils::rate_limit::check_and_increment_api_usage(&user_sub, 10) {
+    if !crate::utils::rate_limit::check_and_increment_api_usage(&user_sub, 20) {
         let resp: CommonResponse<Option<()>> = CommonResponse {
             result: false,
             data: None,
@@ -205,7 +228,7 @@ pub async fn create_product_by_ai(
     let embedding = match crate::utils::openai::get_embedding(&ai_result.name).await {
         Ok(vec) => Some(vec),
         Err(e) => {
-            error!("[OpenAI Embedding Error For AI Model] {}", e);
+            error!("[Cohere Embedding Error For AI Model] {}", e);
             None
         }
     };
@@ -222,6 +245,7 @@ pub async fn create_product_by_ai(
                 note_id: None,
                 user_id: None,
                 registered: chrono::Utc::now(),
+                public_scope: None,
             };
             let db_clone_img = db.clone();
             let insert_ok = web::block(move || {
@@ -254,6 +278,8 @@ pub async fn create_product_by_ai(
         item_inner.image_id
     };
 
+    let barcode_opt = item_inner.barcode_id.clone();
+
     // 6. DB Query & Insertion
     let create_params = CreateProductParams {
         name: ai_result.name,
@@ -261,10 +287,15 @@ pub async fn create_product_by_ai(
         type_,
         barcode_id: item_inner.barcode_id,
         image_id: Some(final_image_id),
+        details: ai_result.details,
     };
 
     let db_clone = db.clone();
     let product = web::block(move || db_create_product_by_ai(db_clone, create_params, embedding)).await??;
+
+    if let Some(ref barcode_id) = barcode_opt {
+        let _removed = crate::utils::logger::delete_fail_barcode(barcode_id);
+    }
 
     let response = CommonResponse {
         result: true,
@@ -311,13 +342,20 @@ pub async fn get_product_by_id_with_auth(
     Ok(HttpResponse::Ok().json(response))
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BarcodeQuery {
+    pub skip_record: Option<bool>,
+}
+
 /// Path: /products/barcode/{barcode_id}
 pub async fn get_product_by_barcode(
     db: web::Data<Pool>,
     r2: web::Data<R2Client>,
     in_barcode_id: web::Path<String>,
+    query: web::Query<BarcodeQuery>,
 ) -> Result<HttpResponse, Error> {
-    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), None).await
+    let skip_record = query.into_inner().skip_record.unwrap_or(false);
+    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), None, skip_record).await
 }
 
 /// Path: /api/products/barcode/{barcode_id} (Authenticated)
@@ -326,10 +364,104 @@ pub async fn get_product_by_barcode_with_auth(
     db: web::Data<Pool>,
     r2: web::Data<R2Client>,
     in_barcode_id: web::Path<String>,
+    query: web::Query<BarcodeQuery>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let user_sub = auth_info.sub;
-    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), Some(user_sub)).await
+    let skip_record = query.into_inner().skip_record.unwrap_or(false);
+    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), Some(user_sub), skip_record).await
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AutocompleteQuery {
+    pub search: String,
+    #[serde(rename = "type")]
+    pub type_: Option<i16>,
+}
+
+/// Path: /products/autocomplete
+pub async fn get_products_autocomplete(
+    db: web::Data<Pool>,
+    query: web::Query<AutocompleteQuery>,
+) -> Result<HttpResponse, Error> {
+    let query_inner = query.into_inner();
+    let search = query_inner.search.trim().to_string();
+    let type_filter = query_inner.type_;
+
+    if search.is_empty() {
+        let response: CommonResponse<Vec<String>> = CommonResponse { result: true, data: vec![], error: None };
+        return Ok(HttpResponse::Ok().json(response));
+    }
+
+    // 1단계: LIKE 검색
+    let search_clone = search.clone();
+    let db_clone = db.clone();
+    let results = web::block(move || db_autocomplete_by_like(db_clone, &search_clone, type_filter)).await??;
+    if !results.is_empty() {
+        let response = CommonResponse { result: true, data: results, error: None };
+        return Ok(HttpResponse::Ok().json(response));
+    }
+
+    // 2단계: LIKE 결과 없음 → 이름 임베딩 유사도 검색 (search_query)
+    let embedding = match crate::utils::openai::get_query_embedding(&search).await {
+        Ok(vec) => vec,
+        Err(e) => {
+            error!("[Cohere Embedding Error] {}", e);
+            let response: CommonResponse<Vec<String>> = CommonResponse { result: true, data: vec![], error: None };
+            return Ok(HttpResponse::Ok().json(response));
+        }
+    };
+    let results = web::block(move || db_autocomplete_by_embedding(db, embedding, type_filter)).await??;
+    let response = CommonResponse { result: true, data: results, error: None };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+fn db_autocomplete_by_like(
+    db: web::Data<Pool>,
+    search: &str,
+    type_filter: Option<i16>,
+) -> Result<Vec<String>, CommonResponseError> {
+    let conn = &mut db.get().unwrap();
+    let like_pattern = format!("%{}%", search.to_lowercase());
+
+    let mut query = products::table
+        .into_boxed()
+        .filter(
+            diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) LIKE ")
+                .bind::<diesel::sql_types::Text, _>(like_pattern)
+        )
+        .order((products::note_count.desc(), products::rating.desc().nulls_last()))
+        .limit(10)
+        .select(products::name);
+
+    if let Some(t) = type_filter {
+        query = query.filter(products::type_.eq(t));
+    }
+
+    query.load::<String>(conn).map_err(handler_disel_error)
+}
+
+/// 자동완성 벡터 검색: 이름 임베딩 L2 유사도 기준 상위 제품명 조회
+fn db_autocomplete_by_embedding(
+    db: web::Data<Pool>,
+    embedding: pgvector::Vector,
+    type_filter: Option<i16>,
+) -> Result<Vec<String>, CommonResponseError> {
+    let conn = &mut db.get().unwrap();
+
+    let mut query = products::table
+        .into_boxed()
+        .filter(products::embedding.is_not_null())
+        .filter(products::embedding.l2_distance(embedding.clone()).lt(PRODUCT_SEARCH_L2_THRESHOLD))
+        .order(products::embedding.l2_distance(embedding))
+        .limit(10)
+        .select(products::name);
+
+    if let Some(t) = type_filter {
+        query = query.filter(products::type_.eq(t));
+    }
+
+    query.load::<String>(conn).map_err(handler_disel_error)
 }
 
 /// Path: /products
@@ -358,12 +490,12 @@ pub async fn get_products_list(
             return Ok(HttpResponse::Ok().json(response));
         }
 
-        // 2단계: LIKE 결과 없음 → 번역 + 임베딩 + 벡터 검색
-        let translated_name = crate::utils::translator::translate_to_english_if_cjk(&name_clone).await;
-        let embedding = match crate::utils::openai::get_embedding(&translated_name).await {
+        // 2단계: LIKE 결과 없음 → 이름 임베딩 벡터 검색
+        // 검색어이므로 쿼리용 임베딩(search_query) 사용
+        let embedding = match crate::utils::openai::get_query_embedding(&name_clone).await {
             Ok(vec) => vec,
             Err(e) => {
-                error!("[OpenAI Embedding Error] {}", e);
+                error!("[Cohere Embedding Error] {}", e);
                 let response = CommonResponse { result: true, data: Vec::<ProductListItem>::new(), error: None };
                 return Ok(HttpResponse::Ok().json(response));
             }
@@ -401,11 +533,11 @@ pub async fn get_favorite_products_list(
     let query_inner = query.into_inner();
     
     let embedding = if let Some(ref name) = query_inner.name {
-        let translated_name = crate::utils::translator::translate_to_english_if_cjk(name).await;
-        match crate::utils::openai::get_embedding(&translated_name).await {
+        // 검색어이므로 쿼리용 임베딩(search_query) 사용
+        match crate::utils::openai::get_query_embedding(name).await {
             Ok(vec) => Some(vec),
             Err(e) => {
-                error!("[OpenAI Embedding Error] {}", e);
+                error!("[Cohere Embedding Error] {}", e);
                 None
             }
         }
@@ -543,6 +675,7 @@ fn db_create_product(
         type_: item.type_,
         registered: Utc::now(),
         embedding: embedding,
+        details: item.details,
     };
 
     let product = conn.transaction::<Product, CommonResponseError, _>(|conn| {
@@ -599,6 +732,7 @@ fn db_create_product_by_ai(
         type_: item.type_,
         registered: Utc::now(),
         embedding: embedding,
+        details: item.details,
     };
 
     let product = conn.transaction::<Product, CommonResponseError, _>(|conn| {
@@ -640,6 +774,7 @@ fn db_get_product_by_id(
     // 제품 이미지 ID들 조회
     let image_ids: Vec<Uuid> = product_images::table
         .filter(product_images::product_id.eq(in_product_id))
+        .filter(product_images::public_scope.is_null().or(product_images::public_scope.eq(2)))
         .select(product_images::id)
         .order((product_images::note_id.desc(), product_images::registered.asc()))
         .limit(10)
@@ -708,6 +843,7 @@ fn db_get_product_by_barcode(
     // 제품 이미지 ID들 조회
     let image_ids: Vec<Uuid> = product_images::table
         .filter(product_images::product_id.eq(product_id))
+        .filter(product_images::public_scope.is_null().or(product_images::public_scope.eq(2)))
         .select(product_images::id)
         .order((product_images::note_id.desc(), product_images::registered.asc()))
         .limit(10)
@@ -800,7 +936,7 @@ fn db_search_products_by_vector(
     let mut vec_query = products::table
         .into_boxed()
         .filter(products::embedding.is_not_null())
-        .filter(products::embedding.l2_distance(embedding.clone()).lt(0.9))
+        .filter(products::embedding.l2_distance(embedding.clone()).lt(PRODUCT_SEARCH_L2_THRESHOLD))
         .order(products::embedding.l2_distance(embedding));
 
     if let Some(type_filter) = query.type_ {
@@ -835,7 +971,7 @@ fn db_get_products_list_default(
 
     if let Some(ref order_by) = query.order_by {
         if order_by == "rating" {
-            products_query = products_query.order(products::rating.desc());
+            products_query = products_query.order((products::rating.desc(), products::registered.desc()));
         } else {
             products_query = products_query.order(products::registered.desc());
         }
@@ -878,6 +1014,7 @@ async fn process_get_product_by_barcode(
     r2: web::Data<R2Client>,
     barcode_str: String,
     sub: Option<String>,
+    skip_record: bool,
 ) -> Result<HttpResponse, Error> {
     let db_clone = db.clone();
     let bc_clone = barcode_str.clone();
@@ -888,7 +1025,10 @@ async fn process_get_product_by_barcode(
 
     match product_detail_result {
         Ok(detail) => {
-            crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&detail.product.name)).await;
+            if !skip_record {
+                crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&detail.product.name)).await;
+                crate::utils::logger::record_success_barcode(&barcode_str);
+            }
             let response = CommonResponse {
                 result: true,
                 data: detail,
@@ -897,6 +1037,16 @@ async fn process_get_product_by_barcode(
             Ok(HttpResponse::Ok().json(response))
         }
         Err(crate::errors::CommonResponseError::RecordNotFound) => {
+            // 이미 스크래핑 실패 이력이 있는 바코드면, 재시도하지 않고 실패 횟수만 +1 후 실패 응답
+            if crate::utils::logger::check_and_increment_fail_barcode(&barcode_str) {
+                let response: CommonResponse<Option<()>> = CommonResponse {
+                    result: false,
+                    data: None,
+                    error: Some(crate::errors::CommonResponseError::RecordNotFound as u8),
+                };
+                return Ok(HttpResponse::Ok().json(response));
+            }
+
             if let Some(scraped) = crate::utils::scraper::scrape_barcode_lookup(&barcode_str).await {
                 crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&scraped.name)).await;
                 // 1. Download image if exists
@@ -911,6 +1061,7 @@ async fn process_get_product_by_barcode(
                             note_id: None,
                             user_id: None,
                             registered: chrono::Utc::now(),
+                            public_scope: None,
                         };
                         let db_clone_img = db.clone();
                         let _ = web::block(move || {
@@ -932,6 +1083,7 @@ async fn process_get_product_by_barcode(
                     type_: scraped.type_,
                     image_id,
                     barcode_id: Some(barcode_str.clone()),
+                    details: scraped.details,
                 };
 
                 let db_clone_check = db.clone();
@@ -941,9 +1093,14 @@ async fn process_get_product_by_barcode(
                 // 동일 이름 제품이 있으면 바코드만 연결하고 바로 조회
                 if let Ok(Some(_)) = web::block(move || db_check_and_attach_barcode(&mut db_clone_check.get().unwrap(), &name_check, barcode_check.as_deref())).await? {
                     let db_clone_fetch = db.clone();
-                    let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, barcode_str, sub)).await?;
+                    let bc_fetch1 = barcode_str.clone();
+                    let sub_fetch1 = sub.clone();
+                    let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, bc_fetch1, sub_fetch1)).await?;
                     match new_detail {
                         Ok(detail) => {
+                            if !skip_record {
+                                crate::utils::logger::record_success_barcode(&barcode_str);
+                            }
                             let response = CommonResponse { result: true, data: detail, error: None };
                             return Ok(HttpResponse::Ok().json(response));
                         }
@@ -963,9 +1120,14 @@ async fn process_get_product_by_barcode(
                     Ok(_prod) => {
                         // After creating, query details again
                         let db_clone_fetch = db.clone();
-                        let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, barcode_str, sub)).await?;
+                        let bc_fetch2 = barcode_str.clone();
+                        let sub_fetch2 = sub.clone();
+                        let new_detail = web::block(move || db_get_product_by_barcode(db_clone_fetch, bc_fetch2, sub_fetch2)).await?;
                         match new_detail {
                             Ok(detail) => {
+                                if !skip_record {
+                                    crate::utils::logger::record_success_barcode(&barcode_str);
+                                }
                                 let response = CommonResponse { result: true, data: detail, error: None };
                                 Ok(HttpResponse::Ok().json(response))
                             }
@@ -981,7 +1143,11 @@ async fn process_get_product_by_barcode(
                     }
                 }
             } else {
-                crate::utils::logger::log_barcode_request(false, &barcode_str, None).await;
+                // 스크래핑까지 실패 → 실패 바코드 목록에 신규 추가 (다음 요청부터는 스크래핑 생략)
+                if !skip_record {
+                    crate::utils::logger::record_fail_barcode(&barcode_str);
+                    crate::utils::logger::log_barcode_request(false, &barcode_str, None).await;
+                }
                 let response: CommonResponse<Option<()>> = CommonResponse {
                     result: false,
                     data: None,
@@ -1051,7 +1217,7 @@ fn db_get_favorite_products_by_user_id(
     // 이름 임베딩 값이 있으면 거리 순 정렬
     if let Some(emb) = embedding {
         products_query = products_query.filter(products::embedding.is_not_null());
-        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(0.9));
+        products_query = products_query.filter(products::embedding.l2_distance(emb.clone()).lt(PRODUCT_SEARCH_L2_THRESHOLD));
         products_query = products_query.order(products::embedding.l2_distance(emb));
     }
 
@@ -1222,3 +1388,554 @@ fn db_get_tasted_products(
 
     Ok(result)
 }
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCabinetRequest {
+    pub cabinet_index: i16,
+}
+
+pub async fn create_cabinet(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    item: web::Json<CreateCabinetRequest>,
+) -> Result<HttpResponse, Error> {
+    use crate::models::Cabinet;
+    let auth_info = get_auth_info(req)?;
+    let cabinet_index = item.cabinet_index;
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+    let cabinet = web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::cabinets;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        let inserted_cabinet = diesel::insert_into(cabinets::table)
+            .values((
+                cabinets::id.eq(Uuid::new_v4()),
+                cabinets::user_id.eq(user_id),
+                cabinets::cabinet_index.eq(cabinet_index),
+                cabinets::name.eq(format!("Cabinet {}", cabinet_index)),
+                cabinets::style.eq(0_i16),
+                cabinets::public_scope.eq(2_i16),
+            ))
+            .get_result::<Cabinet>(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<Cabinet, CommonResponseError>(inserted_cabinet)
+    })
+    .await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: cabinet,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCabinetItemRequest {
+    pub cabinet_id: Uuid,
+    pub product_id: Uuid,
+    pub index: i16,
+}
+
+pub async fn create_cabinet_item(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    item: web::Json<CreateCabinetItemRequest>,
+) -> Result<HttpResponse, Error> {
+    use crate::models::CabinetItem;
+    let auth_info = get_auth_info(req)?;
+    let item_inner = item.into_inner();
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+    let cabinet_item = web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::cabinet_items;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        let inserted_item = diesel::insert_into(cabinet_items::table)
+            .values((
+                cabinet_items::id.eq(Uuid::new_v4()),
+                cabinet_items::cabinet_id.eq(item_inner.cabinet_id),
+                cabinet_items::product_id.eq(item_inner.product_id),
+                cabinet_items::user_id.eq(user_id),
+                cabinet_items::index.eq(item_inner.index),
+                cabinet_items::registered.eq(chrono::Utc::now()),
+                cabinet_items::quantity.eq(1_i16),
+                cabinet_items::capacity.eq(None::<i16>),
+            ))
+            .get_result::<CabinetItem>(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<CabinetItem, CommonResponseError>(inserted_item)
+    })
+    .await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: cabinet_item,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+fn db_get_cabinets(
+    conn: &mut diesel::PgConnection,
+    target_user_id: Uuid,
+) -> Result<Vec<crate::models::CabinetListResponse>, CommonResponseError> {
+    use crate::schema::{cabinets, cabinet_items, products, product_images};
+    use crate::models::{Cabinet, CabinetItem, Product, CabinetProductItem, CabinetListResponse};
+
+    // 1. Find cabinets of user_id, ordered by cabinet_index
+    let user_cabinets: Vec<Cabinet> = cabinets::table
+        .filter(cabinets::user_id.eq(target_user_id))
+        .order(cabinets::cabinet_index.asc())
+        .load::<Cabinet>(conn)
+        .map_err(handler_disel_error)?;
+
+    let mut result = Vec::new();
+
+    for cab in user_cabinets {
+        // 2. Count products in this cabinet
+        let count: i64 = cabinet_items::table
+            .filter(cabinet_items::cabinet_id.eq(cab.id))
+            .count()
+            .get_result(conn)
+            .map_err(handler_disel_error)?;
+
+        // 3. Find up to 3 cabinet_items, ordered by registered desc
+        let items: Vec<CabinetItem> = cabinet_items::table
+            .filter(cabinet_items::cabinet_id.eq(cab.id))
+            .order(cabinet_items::registered.desc())
+            .limit(3)
+            .load::<CabinetItem>(conn)
+            .map_err(handler_disel_error)?;
+
+        let mut products_list = Vec::new();
+
+        for item in items {
+            // 4. Get product
+            let prod: Product = products::table
+                .select(crate::models::PRODUCT_COLUMNS)
+                .find(item.product_id)
+                .first::<Product>(conn)
+                .map_err(handler_disel_error)?;
+
+            // 5. Get image_id
+            let img_id: Option<Uuid> = product_images::table
+                .filter(product_images::product_id.eq(prod.id))
+                .select(product_images::id)
+                .order((product_images::note_id.desc(), product_images::registered.asc()))
+                .first::<Uuid>(conn)
+                .optional()
+                .map_err(handler_disel_error)?;
+
+            products_list.push(CabinetProductItem {
+                id: item.id,
+                product: prod,
+                index: item.index,
+                image_id: img_id,
+                registered: item.registered,
+                quantity: item.quantity,
+                capacity: item.capacity,
+            });
+        }
+
+        result.push(CabinetListResponse {
+            id: cab.id,
+            name: cab.name,
+            style: cab.style,
+            cabinet_index: cab.cabinet_index,
+            public_scope: cab.public_scope,
+            products_count: count,
+            products: products_list,
+        });
+    }
+
+    Ok(result)
+}
+
+fn db_get_cabinet_detail(
+    conn: &mut diesel::PgConnection,
+    cab_id: Uuid,
+) -> Result<crate::models::CabinetDetailResponse, CommonResponseError> {
+    use crate::schema::{cabinets, cabinet_items, products, product_images};
+    use crate::models::{Cabinet, CabinetItem, Product, CabinetProductItem, CabinetDetailResponse};
+
+    // 1. Find cabinet by id
+    let cab: Cabinet = cabinets::table
+        .find(cab_id)
+        .first::<Cabinet>(conn)
+        .map_err(handler_disel_error)?;
+
+    // 2. Find all cabinet_items, ordered by registered desc
+    let items: Vec<CabinetItem> = cabinet_items::table
+        .filter(cabinet_items::cabinet_id.eq(cab.id))
+        .order(cabinet_items::registered.desc())
+        .load::<CabinetItem>(conn)
+        .map_err(handler_disel_error)?;
+
+    let mut products_list = Vec::new();
+
+    for item in items {
+        // 3. Get product
+        let prod: Product = products::table
+            .select(crate::models::PRODUCT_COLUMNS)
+            .find(item.product_id)
+            .first::<Product>(conn)
+            .map_err(handler_disel_error)?;
+
+        // 4. Get image_id
+        let img_id: Option<Uuid> = product_images::table
+            .filter(product_images::product_id.eq(prod.id))
+            .select(product_images::id)
+            .order((product_images::note_id.desc(), product_images::registered.asc()))
+            .first::<Uuid>(conn)
+            .optional()
+            .map_err(handler_disel_error)?;
+
+        products_list.push(CabinetProductItem {
+            id: item.id,
+            product: prod,
+            index: item.index,
+            image_id: img_id,
+            registered: item.registered,
+            quantity: item.quantity,
+            capacity: item.capacity,
+        });
+    }
+
+    Ok(CabinetDetailResponse {
+        id: cab.id,
+        name: cab.name,
+        style: cab.style,
+        cabinet_index: cab.cabinet_index,
+        public_scope: cab.public_scope,
+        products: products_list,
+    })
+}
+
+/// Path: /products/cabinets/{user_id}
+pub async fn get_cabinets_by_user_id(
+    db: web::Data<Pool>,
+    user_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let user_id_inner = user_id.into_inner();
+    let db_clone = db.clone();
+    let cabinets_list = web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        db_get_cabinets(conn, user_id_inner)
+    }).await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: cabinets_list,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /api/products/cabinets (Authenticated)
+pub async fn get_my_cabinets(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+
+    let cabinets_list = web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+        db_get_cabinets(conn, user_id)
+    }).await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: cabinets_list,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /products/cabinet/{id}
+pub async fn get_cabinet_by_id(
+    db: web::Data<Pool>,
+    cabinet_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let cabinet_id_inner = cabinet_id.into_inner();
+    let db_clone = db.clone();
+    let cabinet_detail = web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        db_get_cabinet_detail(conn, cabinet_id_inner)
+    }).await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: cabinet_detail,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+#[derive(Debug, Serialize, Deserialize, diesel::AsChangeset)]
+#[diesel(table_name = crate::schema::cabinets)]
+#[diesel(treat_none_as_null = false)]
+pub struct UpdateCabinetRequest {
+    pub name: Option<String>,
+    pub style: Option<i16>,
+    pub public_scope: Option<i16>,
+}
+
+pub async fn update_cabinet(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    cabinet_id: web::Path<Uuid>,
+    item: web::Json<UpdateCabinetRequest>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let cab_id = cabinet_id.into_inner();
+    let item_inner = item.into_inner();
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+
+    web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::cabinets;
+        use crate::models::Cabinet;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        // 1. Check ownership
+        let cab: Cabinet = cabinets::table
+            .find(cab_id)
+            .first::<Cabinet>(conn)
+            .map_err(handler_disel_error)?;
+
+        if cab.user_id != user_id {
+            return Err(CommonResponseError::AuthValidationFail);
+        }
+
+        // 2. Update
+        diesel::update(cabinets::table.find(cab_id))
+            .set(&item_inner)
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<(), CommonResponseError>(())
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+#[derive(Debug, Serialize, Deserialize, diesel::AsChangeset)]
+#[diesel(table_name = crate::schema::cabinet_items)]
+#[diesel(treat_none_as_null = false)]
+pub struct UpdateCabinetItemRequest {
+    pub index: Option<i16>,
+    pub registered: Option<chrono::DateTime<chrono::Utc>>,
+    pub quantity: Option<i16>,
+    pub capacity: Option<i16>,
+}
+
+pub async fn update_cabinet_item(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    cabinet_item_id: web::Path<Uuid>,
+    item: web::Json<UpdateCabinetItemRequest>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let cab_item_id = cabinet_item_id.into_inner();
+    let item_inner = item.into_inner();
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+
+    web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::cabinet_items;
+        use crate::models::CabinetItem;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        // 1. Check ownership
+        let cab_item: CabinetItem = cabinet_items::table
+            .find(cab_item_id)
+            .first::<CabinetItem>(conn)
+            .map_err(handler_disel_error)?;
+
+        if cab_item.user_id != user_id {
+            return Err(CommonResponseError::AuthValidationFail);
+        }
+
+        // 2. Update
+        diesel::update(cabinet_items::table.find(cab_item_id))
+            .set(&item_inner)
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<(), CommonResponseError>(())
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+pub async fn delete_cabinet(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    cabinet_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let cab_id = cabinet_id.into_inner();
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+
+    web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::{cabinets, cabinet_items};
+        use crate::models::Cabinet;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        // 1. Check ownership
+        let cab: Cabinet = cabinets::table
+            .find(cab_id)
+            .first::<Cabinet>(conn)
+            .map_err(handler_disel_error)?;
+
+        if cab.user_id != user_id {
+            return Err(CommonResponseError::AuthValidationFail);
+        }
+
+        // 2. Delete cabinet_items in this cabinet first
+        diesel::delete(cabinet_items::table.filter(cabinet_items::cabinet_id.eq(cab_id)))
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+
+        // 3. Delete cabinet
+        diesel::delete(cabinets::table.find(cab_id))
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<(), CommonResponseError>(())
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+pub async fn delete_cabinet_item(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    cabinet_item_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let cab_item_id = cabinet_item_id.into_inner();
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+
+    web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::cabinet_items;
+        use crate::models::CabinetItem;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        // 1. Check ownership
+        let cab_item: CabinetItem = cabinet_items::table
+            .find(cab_item_id)
+            .first::<CabinetItem>(conn)
+            .map_err(handler_disel_error)?;
+
+        if cab_item.user_id != user_id {
+            return Err(CommonResponseError::AuthValidationFail);
+        }
+
+        // 2. Delete cabinet item
+        diesel::delete(cabinet_items::table.find(cab_item_id))
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<(), CommonResponseError>(())
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+
+
+

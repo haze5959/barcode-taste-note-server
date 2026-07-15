@@ -22,24 +22,31 @@ EMAIL="barcodetastenote@gmail.com"
 echo "#########[$(date)]############" >> "$LOG_FILE"
 
 # 1. Crawler 실행
-echo "Running Crawler..." >> "$LOG_FILE"
-$PROJECT_ROOT/deploy_bin/barnote_crawler >> "$LOG_FILE" 2>&1
-CRAWLER_STATUS=$?
+# echo "Running Crawler..." >> "$LOG_FILE"
+# $PROJECT_ROOT/deploy_bin/barnote_crawler >> "$LOG_FILE" 2>&1
+# CRAWLER_STATUS=$?
+CRAWLER_STATUS=0 # 크롤러가 주석 처리된 동안 기본값(성공) 유지
 
 # 2. DB Backup 실행
 echo "Running DB Backup..." >> "$LOG_FILE"
 $PROJECT_ROOT/deploy_bin/barnote_batch backup_db >> "$LOG_FILE" 2>&1
 BACKUP_STATUS=$?
 
+# 3. Image Backup 실행 (R2 images/ → 로컬 backup/ 폴더 갱신)
+echo "Running Image Backup..." >> "$LOG_FILE"
+$PROJECT_ROOT/deploy_bin/barnote_batch backup_image >> "$LOG_FILE" 2>&1
+IMAGE_BACKUP_STATUS=$?
+
 # 실패 시 메일 발송
-if [ $CRAWLER_STATUS -ne 0 ] || [ $BACKUP_STATUS -ne 0 ]; then
+if [ $CRAWLER_STATUS -ne 0 ] || [ $BACKUP_STATUS -ne 0 ] || [ $IMAGE_BACKUP_STATUS -ne 0 ]; then
     echo "Job Failed. Sending email to $EMAIL..." >> "$LOG_FILE"
-    
+
     SUBJECT="[Barnote] Daily Job Failure Report ($(date +%Y-%m-%d))"
     MESSAGE="Barnote daily automated tasks failed.\n\n"
     MESSAGE+="Date: $(date)\n"
     MESSAGE+="Crawler Status: $CRAWLER_STATUS (0 is success)\n"
-    MESSAGE+="Backup Status: $BACKUP_STATUS (0 is success)\n\n"
+    MESSAGE+="Backup Status: $BACKUP_STATUS (0 is success)\n"
+    MESSAGE+="Image Backup Status: $IMAGE_BACKUP_STATUS (0 is success)\n\n"
     MESSAGE+="Please check the log file at: $LOG_FILE"
     
     # mail 명령어를 사용하여 발송 (시스템에 postfix/sendmail 등이 설정되어 있어야 함)

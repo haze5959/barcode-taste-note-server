@@ -3,12 +3,15 @@ static/*
 ssl/*
 logs/*
 deploy_bin/*
+backup/*
+batch/backup/*
 crawler/target/*
 .env
 package.json
 package-lock.json
 node_modules/*
 .vscode/*
+.DS_Store
 
 Cargo.lock
 
@@ -21,4 +24,4 @@ migrations/.keep
 barnote-1cb21-7536f37fd5e0.json
 batch/daily_job.log
 
-crawler/artdrink/output/new_product.json
+*/new_product.json

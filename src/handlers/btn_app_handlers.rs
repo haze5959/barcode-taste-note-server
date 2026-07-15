@@ -19,6 +19,7 @@ use std::sync::RwLock;
 use std::time::{Instant, Duration};
 use diesel::dsl::insert_into;
 use diesel::expression_methods::*;
+use diesel::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -141,30 +142,33 @@ pub async fn create_report(
 fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
 
-    // 제품 리스트 조회
+    // 제품 리스트 조회 (note_count가 1 이상인 제품만)
     let products_list: Vec<ProductLite> = products::table
         .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+        .filter(products::note_count.ge(1))
         .order(products::registered.desc())
         .limit(HOME_INFO_LENGTH)
         .load::<ProductLite>(conn)
         .map_err(handler_disel_error)?;
 
-    // 각 제품에 대한 이미지 ID들 조회 (최대 3개)
+    // 각 제품에 대한 이미지 ID 조회 (대표 1개만)
     let mut result = Vec::new();
 
     for product in products_list {
-        // 제품 이미지 ID들 조회 (최대 3개)
+        // 제품 대표 이미지 ID 조회 (1개만)
         let image_ids: Vec<Uuid> = product_images::table
             .filter(product_images::product_id.eq(product.id))
-            .order(product_images::registered.asc())
+            .order((product_images::note_id.desc(), product_images::registered.asc()))
             .select(product_images::id)
-            .limit(3)
-            .load::<Uuid>(conn)
-            .map_err(handler_disel_error)?;
+            .first::<Uuid>(conn)
+            .optional()
+            .map_err(handler_disel_error)?
+            .into_iter()
+            .collect();
 
         result.push(ProductListItem {
             product,
-            image_ids: image_ids,
+            image_ids,
         });
     }
 

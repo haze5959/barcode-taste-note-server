@@ -16,6 +16,7 @@ pub struct NewProduct<'a> {
     pub type_: i16,
     pub registered: DateTime<Utc>,
     pub embedding: Option<pgvector::Vector>,
+    pub details: Option<serde_json::Value>,
 }
 
 /// barcodes 테이블 Insertable
@@ -52,12 +53,26 @@ pub fn establish_connection() -> PgConnection {
         .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
 }
 
-/// 해당 barcode_id가 이미 존재하는지 확인
-pub fn barcode_exists(conn: &mut PgConnection, code: &str) -> bool {
-    use diesel::dsl::{select, exists};
-    select(exists(barcodes::dsl::barcodes.filter(barcodes::dsl::barcode_id.eq(code))))
-        .get_result(conn)
-        .unwrap_or(false)
+
+
+/// 임베딩이 비어 있는(NULL) product 의 (id, name) 목록 조회 — 재임베딩 백필 대상.
+/// embedding IS NULL 만 대상으로 하므로 중단 후 재실행해도 이어서 처리된다(멱등).
+pub fn get_products_without_embedding(conn: &mut PgConnection) -> QueryResult<Vec<(Uuid, String)>> {
+    products::dsl::products
+        .filter(products::dsl::embedding.is_null())
+        .select((products::dsl::id, products::dsl::name))
+        .load::<(Uuid, String)>(conn)
+}
+
+/// product 한 건의 임베딩 갱신
+pub fn update_product_embedding(
+    conn: &mut PgConnection,
+    pid: Uuid,
+    embedding: pgvector::Vector,
+) -> QueryResult<usize> {
+    diesel::update(products::dsl::products.find(pid))
+        .set(products::dsl::embedding.eq(Some(embedding)))
+        .execute(conn)
 }
 
 /// 동일 이름의 product가 있으면 product_id 반환
@@ -85,5 +100,30 @@ pub fn insert_barcode(conn: &mut PgConnection, new_barcode: &NewBarcode) -> Quer
 pub fn insert_product_image(conn: &mut PgConnection, new_image: &NewProductImage) -> QueryResult<usize> {
     diesel::insert_into(product_images::table)
         .values(new_image)
+        .execute(conn)
+}
+
+pub fn get_product_id_and_details_by_barcode(conn: &mut PgConnection, code: &str) -> Option<(Uuid, Option<serde_json::Value>)> {
+    barcodes::dsl::barcodes
+        .inner_join(products::dsl::products)
+        .filter(barcodes::dsl::barcode_id.eq(code))
+        .select((products::dsl::id, products::dsl::details))
+        .first::<(Uuid, Option<serde_json::Value>)>(conn)
+        .ok()
+}
+
+pub fn update_product_info(
+    conn: &mut PgConnection,
+    pid: Uuid,
+    new_desc: Option<&str>,
+    new_type: i16,
+    new_details: Option<serde_json::Value>,
+) -> QueryResult<usize> {
+    diesel::update(products::dsl::products.find(pid))
+        .set((
+            products::dsl::desc.eq(new_desc),
+            products::dsl::type_.eq(new_type),
+            products::dsl::details.eq(new_details),
+        ))
         .execute(conn)
 }

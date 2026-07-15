@@ -13,6 +13,7 @@ pub struct NewProduct<'a> {
     pub type_: i16,
     pub registered: DateTime<Utc>,
     pub embedding: Option<pgvector::Vector>,
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Insertable)]
@@ -43,14 +44,6 @@ pub fn barcode_exists(conn: &mut PgConnection, code: &str) -> bool {
     select(exists(barcodes::dsl::barcodes.filter(barcodes::dsl::barcode_id.eq(code))))
         .get_result(conn)
         .unwrap_or(false)
-}
-
-pub fn product_exists_by_name(conn: &mut PgConnection, product_name: &str) -> Option<Uuid> {
-    products::dsl::products
-        .filter(products::dsl::name.eq(product_name))
-        .select(products::dsl::id)
-        .first::<Uuid>(conn)
-        .ok()
 }
 
 pub fn insert_product(conn: &mut PgConnection, new_product: &NewProduct) -> QueryResult<Uuid> {
