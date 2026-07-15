@@ -347,3 +347,59 @@ pub struct NoteListResponse {
     pub product_image_id: Option<Uuid>,
     pub flavors: Option<Vec<i16>>,
 }
+
+#[derive(Queryable, Selectable, Insertable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = cabinets)]
+pub struct Cabinet {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub cabinet_index: i16,
+    pub name: String,
+    pub style: i16,
+    pub public_scope: i16,
+}
+
+#[derive(Queryable, Selectable, Insertable, Serialize, Deserialize, Debug, Clone)]
+#[diesel(table_name = cabinet_items)]
+pub struct CabinetItem {
+    pub id: Uuid,
+    pub cabinet_id: Uuid,
+    pub product_id: Uuid,
+    pub user_id: Uuid,
+    pub index: i16,
+    pub registered: DateTime<Utc>,
+    pub quantity: i16,
+    pub capacity: Option<i16>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CabinetProductItem {
+    pub id: Uuid,
+    pub product: Product,
+    pub index: i16,
+    pub image_id: Option<Uuid>,
+    pub registered: DateTime<Utc>,
+    pub quantity: i16,
+    pub capacity: Option<i16>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CabinetListResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub style: i16,
+    pub cabinet_index: i16,
+    pub public_scope: i16,
+    pub products_count: i64,
+    pub products: Vec<CabinetProductItem>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CabinetDetailResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub style: i16,
+    pub cabinet_index: i16,
+    pub public_scope: i16,
+    pub products: Vec<CabinetProductItem>,
+}

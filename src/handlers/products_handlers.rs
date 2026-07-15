@@ -1388,3 +1388,554 @@ fn db_get_tasted_products(
 
     Ok(result)
 }
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCabinetRequest {
+    pub cabinet_index: i16,
+}
+
+pub async fn create_cabinet(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    item: web::Json<CreateCabinetRequest>,
+) -> Result<HttpResponse, Error> {
+    use crate::models::Cabinet;
+    let auth_info = get_auth_info(req)?;
+    let cabinet_index = item.cabinet_index;
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+    let cabinet = web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::cabinets;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        let inserted_cabinet = diesel::insert_into(cabinets::table)
+            .values((
+                cabinets::id.eq(Uuid::new_v4()),
+                cabinets::user_id.eq(user_id),
+                cabinets::cabinet_index.eq(cabinet_index),
+                cabinets::name.eq(format!("Cabinet {}", cabinet_index)),
+                cabinets::style.eq(0_i16),
+                cabinets::public_scope.eq(2_i16),
+            ))
+            .get_result::<Cabinet>(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<Cabinet, CommonResponseError>(inserted_cabinet)
+    })
+    .await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: cabinet,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCabinetItemRequest {
+    pub cabinet_id: Uuid,
+    pub product_id: Uuid,
+    pub index: i16,
+}
+
+pub async fn create_cabinet_item(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    item: web::Json<CreateCabinetItemRequest>,
+) -> Result<HttpResponse, Error> {
+    use crate::models::CabinetItem;
+    let auth_info = get_auth_info(req)?;
+    let item_inner = item.into_inner();
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+    let cabinet_item = web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::cabinet_items;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        let inserted_item = diesel::insert_into(cabinet_items::table)
+            .values((
+                cabinet_items::id.eq(Uuid::new_v4()),
+                cabinet_items::cabinet_id.eq(item_inner.cabinet_id),
+                cabinet_items::product_id.eq(item_inner.product_id),
+                cabinet_items::user_id.eq(user_id),
+                cabinet_items::index.eq(item_inner.index),
+                cabinet_items::registered.eq(chrono::Utc::now()),
+                cabinet_items::quantity.eq(1_i16),
+                cabinet_items::capacity.eq(None::<i16>),
+            ))
+            .get_result::<CabinetItem>(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<CabinetItem, CommonResponseError>(inserted_item)
+    })
+    .await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: cabinet_item,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+fn db_get_cabinets(
+    conn: &mut diesel::PgConnection,
+    target_user_id: Uuid,
+) -> Result<Vec<crate::models::CabinetListResponse>, CommonResponseError> {
+    use crate::schema::{cabinets, cabinet_items, products, product_images};
+    use crate::models::{Cabinet, CabinetItem, Product, CabinetProductItem, CabinetListResponse};
+
+    // 1. Find cabinets of user_id, ordered by cabinet_index
+    let user_cabinets: Vec<Cabinet> = cabinets::table
+        .filter(cabinets::user_id.eq(target_user_id))
+        .order(cabinets::cabinet_index.asc())
+        .load::<Cabinet>(conn)
+        .map_err(handler_disel_error)?;
+
+    let mut result = Vec::new();
+
+    for cab in user_cabinets {
+        // 2. Count products in this cabinet
+        let count: i64 = cabinet_items::table
+            .filter(cabinet_items::cabinet_id.eq(cab.id))
+            .count()
+            .get_result(conn)
+            .map_err(handler_disel_error)?;
+
+        // 3. Find up to 3 cabinet_items, ordered by registered desc
+        let items: Vec<CabinetItem> = cabinet_items::table
+            .filter(cabinet_items::cabinet_id.eq(cab.id))
+            .order(cabinet_items::registered.desc())
+            .limit(3)
+            .load::<CabinetItem>(conn)
+            .map_err(handler_disel_error)?;
+
+        let mut products_list = Vec::new();
+
+        for item in items {
+            // 4. Get product
+            let prod: Product = products::table
+                .select(crate::models::PRODUCT_COLUMNS)
+                .find(item.product_id)
+                .first::<Product>(conn)
+                .map_err(handler_disel_error)?;
+
+            // 5. Get image_id
+            let img_id: Option<Uuid> = product_images::table
+                .filter(product_images::product_id.eq(prod.id))
+                .select(product_images::id)
+                .order((product_images::note_id.desc(), product_images::registered.asc()))
+                .first::<Uuid>(conn)
+                .optional()
+                .map_err(handler_disel_error)?;
+
+            products_list.push(CabinetProductItem {
+                id: item.id,
+                product: prod,
+                index: item.index,
+                image_id: img_id,
+                registered: item.registered,
+                quantity: item.quantity,
+                capacity: item.capacity,
+            });
+        }
+
+        result.push(CabinetListResponse {
+            id: cab.id,
+            name: cab.name,
+            style: cab.style,
+            cabinet_index: cab.cabinet_index,
+            public_scope: cab.public_scope,
+            products_count: count,
+            products: products_list,
+        });
+    }
+
+    Ok(result)
+}
+
+fn db_get_cabinet_detail(
+    conn: &mut diesel::PgConnection,
+    cab_id: Uuid,
+) -> Result<crate::models::CabinetDetailResponse, CommonResponseError> {
+    use crate::schema::{cabinets, cabinet_items, products, product_images};
+    use crate::models::{Cabinet, CabinetItem, Product, CabinetProductItem, CabinetDetailResponse};
+
+    // 1. Find cabinet by id
+    let cab: Cabinet = cabinets::table
+        .find(cab_id)
+        .first::<Cabinet>(conn)
+        .map_err(handler_disel_error)?;
+
+    // 2. Find all cabinet_items, ordered by registered desc
+    let items: Vec<CabinetItem> = cabinet_items::table
+        .filter(cabinet_items::cabinet_id.eq(cab.id))
+        .order(cabinet_items::registered.desc())
+        .load::<CabinetItem>(conn)
+        .map_err(handler_disel_error)?;
+
+    let mut products_list = Vec::new();
+
+    for item in items {
+        // 3. Get product
+        let prod: Product = products::table
+            .select(crate::models::PRODUCT_COLUMNS)
+            .find(item.product_id)
+            .first::<Product>(conn)
+            .map_err(handler_disel_error)?;
+
+        // 4. Get image_id
+        let img_id: Option<Uuid> = product_images::table
+            .filter(product_images::product_id.eq(prod.id))
+            .select(product_images::id)
+            .order((product_images::note_id.desc(), product_images::registered.asc()))
+            .first::<Uuid>(conn)
+            .optional()
+            .map_err(handler_disel_error)?;
+
+        products_list.push(CabinetProductItem {
+            id: item.id,
+            product: prod,
+            index: item.index,
+            image_id: img_id,
+            registered: item.registered,
+            quantity: item.quantity,
+            capacity: item.capacity,
+        });
+    }
+
+    Ok(CabinetDetailResponse {
+        id: cab.id,
+        name: cab.name,
+        style: cab.style,
+        cabinet_index: cab.cabinet_index,
+        public_scope: cab.public_scope,
+        products: products_list,
+    })
+}
+
+/// Path: /products/cabinets/{user_id}
+pub async fn get_cabinets_by_user_id(
+    db: web::Data<Pool>,
+    user_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let user_id_inner = user_id.into_inner();
+    let db_clone = db.clone();
+    let cabinets_list = web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        db_get_cabinets(conn, user_id_inner)
+    }).await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: cabinets_list,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /api/products/cabinets (Authenticated)
+pub async fn get_my_cabinets(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+
+    let cabinets_list = web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+        db_get_cabinets(conn, user_id)
+    }).await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: cabinets_list,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Path: /products/cabinet/{id}
+pub async fn get_cabinet_by_id(
+    db: web::Data<Pool>,
+    cabinet_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let cabinet_id_inner = cabinet_id.into_inner();
+    let db_clone = db.clone();
+    let cabinet_detail = web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        db_get_cabinet_detail(conn, cabinet_id_inner)
+    }).await??;
+
+    let response = CommonResponse {
+        result: true,
+        data: cabinet_detail,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+#[derive(Debug, Serialize, Deserialize, diesel::AsChangeset)]
+#[diesel(table_name = crate::schema::cabinets)]
+#[diesel(treat_none_as_null = false)]
+pub struct UpdateCabinetRequest {
+    pub name: Option<String>,
+    pub style: Option<i16>,
+    pub public_scope: Option<i16>,
+}
+
+pub async fn update_cabinet(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    cabinet_id: web::Path<Uuid>,
+    item: web::Json<UpdateCabinetRequest>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let cab_id = cabinet_id.into_inner();
+    let item_inner = item.into_inner();
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+
+    web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::cabinets;
+        use crate::models::Cabinet;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        // 1. Check ownership
+        let cab: Cabinet = cabinets::table
+            .find(cab_id)
+            .first::<Cabinet>(conn)
+            .map_err(handler_disel_error)?;
+
+        if cab.user_id != user_id {
+            return Err(CommonResponseError::AuthValidationFail);
+        }
+
+        // 2. Update
+        diesel::update(cabinets::table.find(cab_id))
+            .set(&item_inner)
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<(), CommonResponseError>(())
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+#[derive(Debug, Serialize, Deserialize, diesel::AsChangeset)]
+#[diesel(table_name = crate::schema::cabinet_items)]
+#[diesel(treat_none_as_null = false)]
+pub struct UpdateCabinetItemRequest {
+    pub index: Option<i16>,
+    pub registered: Option<chrono::DateTime<chrono::Utc>>,
+    pub quantity: Option<i16>,
+    pub capacity: Option<i16>,
+}
+
+pub async fn update_cabinet_item(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    cabinet_item_id: web::Path<Uuid>,
+    item: web::Json<UpdateCabinetItemRequest>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let cab_item_id = cabinet_item_id.into_inner();
+    let item_inner = item.into_inner();
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+
+    web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::cabinet_items;
+        use crate::models::CabinetItem;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        // 1. Check ownership
+        let cab_item: CabinetItem = cabinet_items::table
+            .find(cab_item_id)
+            .first::<CabinetItem>(conn)
+            .map_err(handler_disel_error)?;
+
+        if cab_item.user_id != user_id {
+            return Err(CommonResponseError::AuthValidationFail);
+        }
+
+        // 2. Update
+        diesel::update(cabinet_items::table.find(cab_item_id))
+            .set(&item_inner)
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<(), CommonResponseError>(())
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+pub async fn delete_cabinet(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    cabinet_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let cab_id = cabinet_id.into_inner();
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+
+    web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::{cabinets, cabinet_items};
+        use crate::models::Cabinet;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        // 1. Check ownership
+        let cab: Cabinet = cabinets::table
+            .find(cab_id)
+            .first::<Cabinet>(conn)
+            .map_err(handler_disel_error)?;
+
+        if cab.user_id != user_id {
+            return Err(CommonResponseError::AuthValidationFail);
+        }
+
+        // 2. Delete cabinet_items in this cabinet first
+        diesel::delete(cabinet_items::table.filter(cabinet_items::cabinet_id.eq(cab_id)))
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+
+        // 3. Delete cabinet
+        diesel::delete(cabinets::table.find(cab_id))
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<(), CommonResponseError>(())
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+pub async fn delete_cabinet_item(
+    req: HttpRequest,
+    db: web::Data<Pool>,
+    r2: web::Data<R2Client>,
+    cabinet_item_id: web::Path<Uuid>,
+) -> Result<HttpResponse, Error> {
+    let auth_info = get_auth_info(req)?;
+    let cab_item_id = cabinet_item_id.into_inner();
+
+    let db_clone = db.clone();
+    let r2_clone = r2.clone();
+    let auth_info_clone = auth_info.clone();
+
+    web::block(move || {
+        let conn = &mut db_clone.get().unwrap();
+        use crate::schema::cabinet_items;
+        use crate::models::CabinetItem;
+
+        let user_id = match get_user_id_by_sub(conn, &auth_info_clone.sub) {
+            Ok(id) => id,
+            Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
+            Err(e) => return Err(e),
+        };
+
+        // 1. Check ownership
+        let cab_item: CabinetItem = cabinet_items::table
+            .find(cab_item_id)
+            .first::<CabinetItem>(conn)
+            .map_err(handler_disel_error)?;
+
+        if cab_item.user_id != user_id {
+            return Err(CommonResponseError::AuthValidationFail);
+        }
+
+        // 2. Delete cabinet item
+        diesel::delete(cabinet_items::table.find(cab_item_id))
+            .execute(conn)
+            .map_err(handler_disel_error)?;
+
+        Ok::<(), CommonResponseError>(())
+    })
+    .await??;
+
+    let response: CommonResponse<Option<()>> = CommonResponse {
+        result: true,
+        data: None,
+        error: None,
+    };
+    Ok(HttpResponse::Ok().json(response))
+}
+
+
+
+

@@ -84,6 +84,8 @@ async fn main() -> std::io::Result<()> {
             .route("/products/autocomplete", web::get().to(handlers::products_handlers::get_products_autocomplete))
             .route("/products/favorite", web::get().to(handlers::products_handlers::get_favorite_products_list_by_user_id))
             .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode))
+            .route("/products/cabinets/{user_id}", web::get().to(handlers::products_handlers::get_cabinets_by_user_id))
+            .route("/products/cabinet/{id}", web::get().to(handlers::products_handlers::get_cabinet_by_id))
             .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id))
             // Notes
             .route("/notes", web::get().to(handlers::notes_handlers::get_notes_list))
@@ -121,6 +123,13 @@ async fn main() -> std::io::Result<()> {
                             .route("/products/tasted", web::get().to(handlers::products_handlers::get_tasted_products_list))
                             .route("/products/ai", web::post().to(handlers::products_handlers::create_product_by_ai))
                             .route("/products/barcode/{barcode_id}", web::get().to(handlers::products_handlers::get_product_by_barcode_with_auth))
+                            .route("/products/cabinet", web::post().to(handlers::products_handlers::create_cabinet))
+                            .route("/products/cabinet/{id}", web::put().to(handlers::products_handlers::update_cabinet))
+                            .route("/products/cabinet/{id}", web::delete().to(handlers::products_handlers::delete_cabinet))
+                            .route("/products/cabinet/item", web::post().to(handlers::products_handlers::create_cabinet_item))
+                            .route("/products/cabinet/item/{id}", web::put().to(handlers::products_handlers::update_cabinet_item))
+                            .route("/products/cabinet/item/{id}", web::delete().to(handlers::products_handlers::delete_cabinet_item))
+                            .route("/products/cabinets", web::get().to(handlers::products_handlers::get_my_cabinets))
                             .route("/products/{id}", web::get().to(handlers::products_handlers::get_product_by_id_with_auth))
                             // Notes
                             .route("/notes/calendar", web::get().to(handlers::notes_handlers::get_notes_calendar))
