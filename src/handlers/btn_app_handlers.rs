@@ -158,7 +158,7 @@ fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, C
         // 제품 대표 이미지 ID 조회 (1개만)
         let image_ids: Vec<Uuid> = product_images::table
             .filter(product_images::product_id.eq(product.id))
-            .order(product_images::registered.asc())
+            .order((product_images::note_id.desc(), product_images::registered.asc()))
             .select(product_images::id)
             .first::<Uuid>(conn)
             .optional()

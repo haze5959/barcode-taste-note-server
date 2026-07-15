@@ -116,12 +116,16 @@ pub async fn create_product(
         return Ok(HttpResponse::Ok().json(resp));
     }
 
+    let barcode_opt = item_inner.barcode_id.clone();
     let db_check = db.clone();
     let name_check = item_inner.name.clone();
     let barcode_check = item_inner.barcode_id.clone();
 
     // 동일한 이름의 제품이 이미 있으면 바코드만 연결하고 바로 반환
     if let Some(product) = web::block(move || db_check_and_attach_barcode(&mut db_check.get().unwrap(), &name_check, barcode_check.as_deref())).await?? {
+        if let Some(ref barcode_id) = barcode_opt {
+            let _removed = crate::utils::logger::delete_fail_barcode(barcode_id);
+        }
         let response = CommonResponse { result: true, data: product, error: None };
         return Ok(HttpResponse::Ok().json(response));
     }
@@ -169,6 +173,11 @@ pub async fn create_product(
     };
 
     let product = web::block(move || db_create_product(db, item_inner, embedding)).await??;
+
+    if let Some(ref barcode_id) = barcode_opt {
+        let _removed = crate::utils::logger::delete_fail_barcode(barcode_id);
+    }
+
     let response = CommonResponse {
         result: true,
         data: product,
@@ -189,7 +198,7 @@ pub async fn create_product_by_ai(
     let item_inner = item.into_inner();
 
     // 1. Rate Limiting Check
-    if !crate::utils::rate_limit::check_and_increment_api_usage(&user_sub, 10) {
+    if !crate::utils::rate_limit::check_and_increment_api_usage(&user_sub, 20) {
         let resp: CommonResponse<Option<()>> = CommonResponse {
             result: false,
             data: None,
@@ -269,6 +278,8 @@ pub async fn create_product_by_ai(
         item_inner.image_id
     };
 
+    let barcode_opt = item_inner.barcode_id.clone();
+
     // 6. DB Query & Insertion
     let create_params = CreateProductParams {
         name: ai_result.name,
@@ -281,6 +292,10 @@ pub async fn create_product_by_ai(
 
     let db_clone = db.clone();
     let product = web::block(move || db_create_product_by_ai(db_clone, create_params, embedding)).await??;
+
+    if let Some(ref barcode_id) = barcode_opt {
+        let _removed = crate::utils::logger::delete_fail_barcode(barcode_id);
+    }
 
     let response = CommonResponse {
         result: true,
