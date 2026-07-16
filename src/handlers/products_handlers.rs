@@ -1417,12 +1417,14 @@ pub async fn create_cabinet(
             Err(e) => return Err(e),
         };
 
+        let cabinet_name = crate::utils::nickname::generate_cabinet_name(&auth_info_clone.locale, cabinet_index);
+
         let inserted_cabinet = diesel::insert_into(cabinets::table)
             .values((
                 cabinets::id.eq(Uuid::new_v4()),
                 cabinets::user_id.eq(user_id),
                 cabinets::cabinet_index.eq(cabinet_index),
-                cabinets::name.eq(format!("Cabinet {}", cabinet_index)),
+                cabinets::name.eq(cabinet_name),
                 cabinets::style.eq(0_i16),
                 cabinets::public_scope.eq(2_i16),
             ))

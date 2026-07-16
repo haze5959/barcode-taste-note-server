@@ -52,7 +52,98 @@ const NOUNS_ZH: &[&str] = &[
     "量酒器", "摇酒壶", "瓶子", "软木塞", "葡萄", "桃子", "苹果", "蜂蜜"
 ];
 
-// 간단한 자체 해시(Base62) 인코더로 영어 대소문자+숫자인 짧은 식별자 생성
+const ADJECTIVES_ZH_HANT: &[&str] = &[
+    "甜蜜的", "孤獨的", "芬芳的", "苦澀的", "清新的", "刺激的", "順滑的", "神秘的",
+    "淡淡的", "華麗的", "透明的", "涼爽の", "溫暖的", "輕快的", "厚重的", "醇厚的",
+    "優雅的", "深沉的", "舒適的", "明亮的", "平靜的", "強烈的", "鮮豔的", "經典的",
+    "秘密的", "夢幻的", "煙燻的", "豐富的", "芳香的", "金色的", "黑暗的", "辛辣的"
+];
+const NOUNS_ZH_HANT: &[&str] = &[
+    "威士忌", "調酒師", "品酒師", "雞尾酒", "伏特加", "檸檬", "櫻桃", "橄欖",
+    "橡木桶", "香草", "冰塊", "酒杯", "葡萄酒", "干邑", "金酒", "朗姆酒",
+    "龍舌蘭", "薄荷", "青檸", "糖漿", "鹽", "胡椒", "咖啡", "可可",
+    "量酒器", "搖酒壺", "瓶子", "軟木塞", "葡萄", "桃子", "蘋果", "蜂蜜"
+];
+
+const ADJECTIVES_FR: &[&str] = &[
+    "Doux", "Solitaire", "Parfumé", "Amer", "Frais", "Excitant", "Lisse", "Mystique",
+    "Subtil", "Chic", "Clair", "Frais", "Chaud", "Joyeux", "Lourd", "Moelleux",
+    "Élégant", "Profond", "Douillet", "Lumineux", "Calme", "Fort", "Vif", "Classique",
+    "Secret", "Rêveur", "Fumé", "Riche", "Aromatique", "Doré", "Sombre", "Épicé"
+];
+const NOUNS_FR: &[&str] = &[
+    "Whisky", "Barman", "Dégustateur", "Cocktail", "Vodka", "Citron", "Cerise", "Olive",
+    "Chêne", "Vanille", "Glace", "Verre", "Vin", "Cognac", "Gin", "Rhum",
+    "Tequila", "Menthe", "CitronVert", "Sirop", "Sel", "Poivre", "Café", "Cacao",
+    "Doseur", "Shaker", "Bouteille", "Bouchon", "Raisin", "Pêche", "Pomme", "Miel"
+];
+
+const ADJECTIVES_DE: &[&str] = &[
+    "Süß", "Einsam", "Duftend", "Bitter", "Frisch", "Aufregend", "Sanft", "Mystisch",
+    "Subtil", "Schick", "Klar", "Kühl", "Warm", "Fröhlich", "Schwer", "Mild",
+    "Elegant", "Tief", "Gemütlich", "Hell", "Entspannt", "Stark", "Lebhaft", "Klassisch",
+    "Geheim", "Traumhaft", "Rauchig", "Reich", "Aromatisch", "Golden", "Dunkel", "Würzig"
+];
+const NOUNS_DE: &[&str] = &[
+    "Whisky", "Bartender", "Taster", "Cocktail", "Wodka", "Zitrone", "Kirsche", "Olive",
+    "Eiche", "Vanille", "Eis", "Glas", "Wein", "Cognac", "Gin", "Rum",
+    "Tequila", "Minze", "Limette", "Sirup", "Salz", "Pfeffer", "Kaffee", "Kakao",
+    "Jigger", "Shaker", "Flasche", "Korken", "Traube", "Pfirsich", "Apfel", "Honig"
+];
+
+const ADJECTIVES_ES: &[&str] = &[
+    "Dulce", "Solitario", "Fragante", "Amargo", "Fresco", "Apasionante", "Suave", "Místico",
+    "Sutil", "Elegante", "Claro", "Fresco", "Cálido", "Alegre", "Pesado", "Meloso",
+    "Elegante", "Profundo", "Acogedor", "Brillante", "Tranquilo", "Fuerte", "Vívido", "Clásico",
+    "Secreto", "Soñador", "Ahumado", "Rico", "Aromático", "Dorado", "Oscuro", "Picante"
+];
+const NOUNS_ES: &[&str] = &[
+    "Whisky", "Barman", "Catador", "Cóctel", "Vodka", "Limón", "Cereza", "Oliva",
+    "Roble", "Vainilla", "Hielo", "Vaso", "Vino", "Coñac", "Ginebra", "Ron",
+    "Tequila", "Menta", "Lima", "Jarabe", "Sal", "Pimienta", "Café", "Cacao",
+    "Medidor", "Coctelera", "Botella", "Corcho", "Uva", "Melocotón", "Manzana", "Miel"
+];
+
+const ADJECTIVES_PT: &[&str] = &[
+    "Doce", "Solitário", "Fragrante", "Amargo", "Fresco", "Excitante", "Suave", "Místico",
+    "Subtil", "Elegante", "Claro", "Fresco", "Quente", "Alegre", "Pesado", "Maduro",
+    "Elegante", "Profundo", "Acolhedor", "Brilhante", "Calmo", "Forte", "Vívido", "Clássico",
+    "Secreto", "Sonhador", "Defumado", "Rico", "Aromático", "Dourado", "Escuro", "Picante"
+];
+const NOUNS_PT: &[&str] = &[
+    "Whisky", "Barman", "Provador", "Cocktail", "Vodka", "Limão", "Cereja", "Oliva",
+    "Carvalho", "Baunilha", "Gelo", "Copo", "Vinho", "Conhaque", "Gin", "Rum",
+    "Tequila", "Hortelã", "Lima", "Xarope", "Sal", "Pimenta", "Café", "Cacau",
+    "Medidor", "Coqueteleira", "Garrafa", "Rolha", "Uva", "Pêssego", "Maçã", "Mel"
+];
+
+const ADJECTIVES_IT: &[&str] = &[
+    "Dolce", "Solitario", "Fragrante", "Amaro", "Fresco", "Emozionante", "Morbido", "Mistico",
+    "Sottile", "Elegante", "Chiaro", "Fresco", "Caldo", "Gioioso", "Pesante", "Mellifluo",
+    "Elegante", "Profondo", "Accogliente", "Brillante", "Tranquillo", "Forte", "Vivido", "Classico",
+    "Segreto", "Sognante", "Affumicato", "Ricco", "Aromatico", "Dorato", "Scuro", "Speziato"
+];
+const NOUNS_IT: &[&str] = &[
+    "Whisky", "Barman", "Assaggiatore", "Cocktail", "Vodka", "Limone", "Ciliegia", "Oliva",
+    "Quercia", "Vaniglia", "Ghiaccio", "Bicchiere", "Vino", "Cognac", "Gin", "Rum",
+    "Tequila", "Menta", "Lime", "Sciroppo", "Sale", "Pepe", "Caffè", "Cacao",
+    "Dosatore", "Shaker", "Bottiglia", "Sughero", "Uva", "Pesca", "Mela", "Miele"
+];
+
+const ADJECTIVES_RU: &[&str] = &[
+    "Сладкий", "Одинокий", "Ароматный", "Горький", "Свежий", "Волнующий", "Мягкий", "Мистический",
+    "Тонкий", "Изысканный", "Чистый", "Прохладный", "Теплый", "Радостный", "Тяжелый", "Нежный",
+    "Элегантный", "Глубокий", "Уютный", "Яркий", "Спокойный", "Сильный", "Живой", "Классический",
+    "Тайный", "Мечтательный", "Дымный", "Богатый", "Душистый", "Золотой", "Темный", "Пряный"
+];
+const NOUNS_RU: &[&str] = &[
+    "Виски", "Бармен", "Дегустатор", "Коктейль", "Водка", "Лимон", "Вишня", "Оливка",
+    "Дуб", "Ваниль", "Лед", "Бокал", "Вино", "Коньяк", "Джин", "Ром",
+    "Текила", "Мята", "Лайм", "Сироп", "Соль", "Перец", "Кофе", "Какао",
+    "Джиггер", "Шейкер", "Бутылка", "Пробка", "Виноград", "Персик", "Яблоко", "Мед"
+];
+
+// 간단한 자체 해시(Base62) 인ко더로 영어 대소문자+숫자인 짧은 식별자 생성
 fn encode_base62(mut num: u64, length: usize) -> String {
     let chars = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     let mut result = String::with_capacity(length);
@@ -72,14 +163,56 @@ pub fn generate_nickname(locale: &str, user_id: &Uuid) -> String {
     
     // UUID의 하위 64비트를 사용해 3글자 식별자(해시) 생성
     let identifier = encode_base62(u as u64, 3);
+    let lower_locale = locale.to_lowercase();
     
-    if locale.starts_with("ko") {
+    if lower_locale.starts_with("ko") {
         format!("{}_{}_{}", ADJECTIVES_KO[adj_idx], NOUNS_KO[noun_idx], identifier)
-    } else if locale.starts_with("ja") {
+    } else if lower_locale.starts_with("ja") {
         format!("{}_{}_{}", ADJECTIVES_JA[adj_idx], NOUNS_JA[noun_idx], identifier)
-    } else if locale.starts_with("zh") {
+    } else if lower_locale.starts_with("zh-hant") || lower_locale.starts_with("zh-tw") || lower_locale.starts_with("zh-hk") {
+        format!("{}_{}_{}", ADJECTIVES_ZH_HANT[adj_idx], NOUNS_ZH_HANT[noun_idx], identifier)
+    } else if lower_locale.starts_with("zh") {
         format!("{}_{}_{}", ADJECTIVES_ZH[adj_idx], NOUNS_ZH[noun_idx], identifier)
+    } else if lower_locale.starts_with("fr") {
+        format!("{}_{}_{}", ADJECTIVES_FR[adj_idx], NOUNS_FR[noun_idx], identifier)
+    } else if lower_locale.starts_with("de") {
+        format!("{}_{}_{}", ADJECTIVES_DE[adj_idx], NOUNS_DE[noun_idx], identifier)
+    } else if lower_locale.starts_with("es") {
+        format!("{}_{}_{}", ADJECTIVES_ES[adj_idx], NOUNS_ES[noun_idx], identifier)
+    } else if lower_locale.starts_with("pt") {
+        format!("{}_{}_{}", ADJECTIVES_PT[adj_idx], NOUNS_PT[noun_idx], identifier)
+    } else if lower_locale.starts_with("it") {
+        format!("{}_{}_{}", ADJECTIVES_IT[adj_idx], NOUNS_IT[noun_idx], identifier)
+    } else if lower_locale.starts_with("ru") {
+        format!("{}_{}_{}", ADJECTIVES_RU[adj_idx], NOUNS_RU[noun_idx], identifier)
     } else {
         format!("{}_{}_{}", ADJECTIVES_EN[adj_idx], NOUNS_EN[noun_idx], identifier)
+    }
+}
+
+pub fn generate_cabinet_name(locale: &str, index: i16) -> String {
+    let lower_locale = locale.to_lowercase();
+    if lower_locale.starts_with("ko") {
+        format!("술장 {}", index)
+    } else if lower_locale.starts_with("ja") {
+        format!("酒棚 {}", index)
+    } else if lower_locale.starts_with("zh-hant") || lower_locale.starts_with("zh-tw") || lower_locale.starts_with("zh-hk") {
+        format!("酒櫃 {}", index)
+    } else if lower_locale.starts_with("zh") {
+        format!("酒柜 {}", index)
+    } else if lower_locale.starts_with("fr") {
+        format!("Cabinet de bar {}", index)
+    } else if lower_locale.starts_with("de") {
+        format!("Barschrank {}", index)
+    } else if lower_locale.starts_with("es") {
+        format!("Mueble bar {}", index)
+    } else if lower_locale.starts_with("pt") {
+        format!("Armário de bar {}", index)
+    } else if lower_locale.starts_with("it") {
+        format!("Mobile bar {}", index)
+    } else if lower_locale.starts_with("ru") {
+        format!("Барный шкаф {}", index)
+    } else {
+        format!("Bar Cabinet {}", index)
     }
 }
