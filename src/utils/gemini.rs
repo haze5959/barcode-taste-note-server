@@ -56,12 +56,15 @@ pub struct GeminiProductAnalysis {
 
 pub async fn analyze_image_with_gemini(r2: &crate::utils::r2::R2Client, image_id_str: &str) -> Result<GeminiProductAnalysis, String> {
     let key = format!("images/{}", image_id_str);
-    
+    let image_bytes = r2.get_image(&key).await.map_err(|e| format!("Failed to read image from R2 {}: {:?}", key, e))?;
+    let base64_image = STANDARD.encode(image_bytes);
+
+    analyze_base64_image_with_gemini(&base64_image, image_id_str).await
+}
+
+pub async fn analyze_base64_image_with_gemini(base64_image: &str, image_id_for_log: &str) -> Result<GeminiProductAnalysis, String> {
     let result: Result<(GeminiProductAnalysis, String), String> = async {
         let api_key = env::var("GEMINI_API_KEY").map_err(|_| "GEMINI_API_KEY is missing".to_string())?;
-        
-        let image_bytes = r2.get_image(&key).await.map_err(|e| format!("Failed to read image from R2 {}: {:?}", key, e))?;
-        let base64_image = STANDARD.encode(image_bytes);
 
         let prompt = "Analyze image for F&B/alcohol. If NOT F&B, return: {\"error\":\"Not an F&B product\"}.
 Even if there are multiple products in the image, select and analyze only the single most prominent product and return a single JSON object. DO NOT return a JSON array under any circumstances.
@@ -80,7 +83,7 @@ GRAPE(Wine ONLY): Red(0:cabSauv,1:merlot,2:pinotNoir,3:syrah,4:malbec,5:sangiove
                     Part::InlineData {
                         inline_data: InlineData {
                             mime_type: "image/jpeg".to_string(),
-                            data: base64_image,
+                            data: base64_image.to_string(),
                         }
                     }
                 ]
@@ -127,7 +130,7 @@ GRAPE(Wine ONLY): Red(0:cabSauv,1:merlot,2:pinotNoir,3:syrah,4:malbec,5:sangiove
         Err(e) => (Err(e.clone()), format!("ERROR: {}", e), false),
     };
 
-    crate::utils::logger::log_gemini_request(is_success, image_id_str, &log_text).await;
+    crate::utils::logger::log_gemini_request(is_success, image_id_for_log, &log_text).await;
 
     analysis_res
 }
