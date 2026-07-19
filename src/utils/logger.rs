@@ -225,6 +225,22 @@ pub async fn log_barcode_request(is_success: bool, barcode: &str, product_name: 
     }
 }
 
+pub async fn log_search_history(query: &str) {
+    let now = chrono::Local::now();
+    let time_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
+    let date_str = now.format("%Y%m%d").to_string();
+    let dir_path = format!("logs/{}", date_str);
+    let _ = tokio::fs::create_dir_all(&dir_path).await;
+
+    let log_filename = "search_history.log";
+
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(format!("{}/{}", dir_path, log_filename)).await {
+        let log_line = format!("{} : {}\n", time_str, query);
+        let _ = file.write_all(log_line.as_bytes()).await;
+    }
+}
+
+
 /// 신규 가입 성공 시 호출한다. 운영자에게 가입 알림 메일을 첫 가입 시점 기준 배치로 보낸다.
 /// (첫 가입으로부터 OPERATOR_MAIL_BATCH_INTERVAL 동안 누적한 뒤, 그 시점까지의 가입자 수를 한 번에 발송)
 pub fn notify_user_registered() {
@@ -451,3 +467,61 @@ pub fn read_success_barcodes_view() -> SuccessBarcodesView {
     entries.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
     SuccessBarcodesView(entries)
 }
+
+pub async fn send_daily_search_history_report() -> Result<(), std::io::Error> {
+    let yesterday = chrono::Local::now() - chrono::Duration::days(1);
+    let yesterday_dir_str = yesterday.format("%Y%m%d").to_string();
+    let yesterday_date_str = yesterday.format("%Y-%m-%d").to_string();
+    
+    let log_path = format!("logs/{}/search_history.log", yesterday_dir_str);
+    
+    let body = if tokio::fs::metadata(&log_path).await.is_ok() {
+        match tokio::fs::read_to_string(&log_path).await {
+            Ok(content) => {
+                if content.trim().is_empty() {
+                    "어제의 검색 기록이 비어 있습니다.".to_string()
+                } else {
+                    content
+                }
+            }
+            Err(e) => format!("어제의 검색 기록 파일 읽기 실패: {:?}", e),
+        }
+    } else {
+        "어제의 검색 기록이 없습니다.".to_string()
+    };
+    
+    let subject = format!("[Barnote] {} 검색 히스토리 리포트", yesterday_date_str);
+    send_operator_mail(subject, body);
+    
+    Ok(())
+}
+
+pub fn start_report_scheduler() {
+    use chrono::TimeZone;
+    actix_rt::spawn(async {
+        loop {
+            let now = chrono::Local::now();
+            let target = if now.time() < chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap() {
+                now.date_naive().and_hms_milli_opt(9, 0, 0, 0).unwrap()
+            } else {
+                (now.date_naive() + chrono::Duration::days(1)).and_hms_milli_opt(9, 0, 0, 0).unwrap()
+            };
+            
+            if let Some(target_dt) = chrono::Local.from_local_datetime(&target).single() {
+                let duration = target_dt.signed_duration_since(now);
+                if let Ok(std_dur) = duration.to_std() {
+                    tokio::time::sleep(std_dur).await;
+                }
+            } else {
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+                continue;
+            }
+            
+            let _ = send_daily_search_history_report().await;
+            
+            // Sleep for 60 seconds to avoid double execution due to timing drift
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
+}
+

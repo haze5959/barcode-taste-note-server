@@ -474,6 +474,7 @@ pub async fn get_products_list(
 
     // 이름 검색어가 있는 경우: LIKE 검색 우선
     if let Some(ref name) = query_inner.name {
+        crate::utils::logger::log_search_history(name).await;
         let name_clone = name.clone();
         let db_clone = db.clone();
         let query_clone = ProductListQuery {

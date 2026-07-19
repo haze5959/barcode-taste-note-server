@@ -44,9 +44,6 @@ async fn main() -> std::io::Result<()> {
     let r2_client = barcode_taste_note::utils::r2::R2Client::new().await;
     let r2_data = web::Data::new(r2_client);
 
-    // load TLS keys
-    // to create a self-signed temporary cert for testing:
-    // `openssl req -x509 -newkey rsa:4096 -nodes -keyout key.pem -out cert.pem -days 365 -subj '/CN=localhost'`
     let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
     builder
         .set_private_key_file("ssl/server.key", SslFiletype::PEM)
@@ -54,6 +51,8 @@ async fn main() -> std::io::Result<()> {
     builder
         .set_certificate_chain_file("ssl/server.crt")
         .expect("Failed to load certificate");
+
+    barcode_taste_note::utils::logger::start_report_scheduler();
 
     HttpServer::new(move || {
         App::new()
