@@ -355,7 +355,7 @@ pub async fn get_product_by_barcode(
     query: web::Query<BarcodeQuery>,
 ) -> Result<HttpResponse, Error> {
     let skip_record = query.into_inner().skip_record.unwrap_or(false);
-    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), None, skip_record).await
+    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), None, None, skip_record).await
 }
 
 /// Path: /api/products/barcode/{barcode_id} (Authenticated)
@@ -368,8 +368,9 @@ pub async fn get_product_by_barcode_with_auth(
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let user_sub = auth_info.sub;
+    let user_locale = auth_info.locale.clone();
     let skip_record = query.into_inner().skip_record.unwrap_or(false);
-    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), Some(user_sub), skip_record).await
+    process_get_product_by_barcode(db, r2, in_barcode_id.into_inner(), Some(user_sub), Some(user_locale), skip_record).await
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -473,6 +474,7 @@ pub async fn get_products_list(
 
     // 이름 검색어가 있는 경우: LIKE 검색 우선
     if let Some(ref name) = query_inner.name {
+        crate::utils::logger::log_search_history(name).await;
         let name_clone = name.clone();
         let db_clone = db.clone();
         let query_clone = ProductListQuery {
@@ -1014,6 +1016,7 @@ async fn process_get_product_by_barcode(
     r2: web::Data<R2Client>,
     barcode_str: String,
     sub: Option<String>,
+    locale: Option<String>,
     skip_record: bool,
 ) -> Result<HttpResponse, Error> {
     let db_clone = db.clone();
@@ -1047,30 +1050,32 @@ async fn process_get_product_by_barcode(
                 return Ok(HttpResponse::Ok().json(response));
             }
 
-            if let Some(scraped) = crate::utils::scraper::scrape_barcode_lookup(&barcode_str).await {
+            // 한국 요청일 경우 이마트에서 스크랩핑
+            let scraped_opt = if locale.as_deref() == Some("ko") {
+                crate::utils::scraper::scrape_emart(&r2, &barcode_str).await
+            } else {
+                crate::utils::scraper::scrape_barcode_lookup(&r2, &barcode_str).await
+            };
+
+            if let Some(scraped) = scraped_opt {
                 crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&scraped.name)).await;
-                // 1. Download image if exists
-                let mut image_id = None;
-                if let Some(img_url) = scraped.image_url {
-                    let new_uuid = uuid::Uuid::new_v4();
-                    if crate::utils::scraper::download_image(&r2, &img_url, new_uuid).await.is_ok() {
-                        image_id = Some(new_uuid);
-                        let new_image = crate::models::NewProductImage {
-                            id: new_uuid,
-                            product_id: None,
-                            note_id: None,
-                            user_id: None,
-                            registered: chrono::Utc::now(),
-                            public_scope: None,
-                        };
-                        let db_clone_img = db.clone();
-                        let _ = web::block(move || {
-                            let conn = &mut db_clone_img.get().unwrap();
-                            diesel::insert_into(crate::schema::product_images::table)
-                                .values(&new_image)
-                                .execute(conn)
-                        }).await;
-                    }
+                // 1. Record image in DB if downloaded
+                if let Some(image_id) = scraped.image_id {
+                    let new_image = crate::models::NewProductImage {
+                        id: image_id,
+                        product_id: None,
+                        note_id: None,
+                        user_id: None,
+                        registered: chrono::Utc::now(),
+                        public_scope: None,
+                    };
+                    let db_clone_img = db.clone();
+                    let _ = web::block(move || {
+                        let conn = &mut db_clone_img.get().unwrap();
+                        diesel::insert_into(crate::schema::product_images::table)
+                            .values(&new_image)
+                            .execute(conn)
+                    }).await;
                 }
 
                 // 2. Generate vector embedding
@@ -1081,7 +1086,7 @@ async fn process_get_product_by_barcode(
                     name: scraped.name,
                     desc: scraped.desc,
                     type_: scraped.type_,
-                    image_id,
+                    image_id: scraped.image_id,
                     barcode_id: Some(barcode_str.clone()),
                     details: scraped.details,
                 };
@@ -1417,12 +1422,14 @@ pub async fn create_cabinet(
             Err(e) => return Err(e),
         };
 
+        let cabinet_name = crate::utils::nickname::generate_cabinet_name(&auth_info_clone.locale, cabinet_index);
+
         let inserted_cabinet = diesel::insert_into(cabinets::table)
             .values((
                 cabinets::id.eq(Uuid::new_v4()),
                 cabinets::user_id.eq(user_id),
                 cabinets::cabinet_index.eq(cabinet_index),
-                cabinets::name.eq(format!("Cabinet {}", cabinet_index)),
+                cabinets::name.eq(cabinet_name),
                 cabinets::style.eq(0_i16),
                 cabinets::public_scope.eq(2_i16),
             ))

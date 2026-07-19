@@ -1,12 +1,13 @@
 use regex::Regex;
 use std::sync::OnceLock;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 #[derive(Debug)]
 pub struct ScrapedProduct {
     pub name: String,
     pub type_: i16,
     pub desc: Option<String>,
-    pub image_url: Option<String>,
+    pub image_id: Option<uuid::Uuid>,
     pub details: Option<serde_json::Value>,
 }
 
@@ -96,7 +97,7 @@ fn clean_product_name(name: &str) -> String {
 }
 
 
-pub async fn scrape_barcode_lookup(barcode: &str) -> Option<ScrapedProduct> {
+pub async fn scrape_barcode_lookup(r2: &crate::utils::r2::R2Client, barcode: &str) -> Option<ScrapedProduct> {
     let url = format!("https://www.barcodelookup.com/{}", barcode);
     println!(">>> [Scraper] Starting: barcode={}, URL={}", barcode, url);
     
@@ -163,15 +164,107 @@ pub async fn scrape_barcode_lookup(barcode: &str) -> Option<ScrapedProduct> {
         None
     };
 
+    let mut image_id = None;
+    if let Some(img_url) = image_url {
+        let new_uuid = uuid::Uuid::new_v4();
+        if download_image(r2, &img_url, new_uuid).await.is_ok() {
+            image_id = Some(new_uuid);
+        }
+    }
+
     println!(">>> [Scraper] Success: Extracted product '{}' (Category: {})", name, type_);
 
     Some(ScrapedProduct {
         name,
         type_,
         desc,
-        image_url,
+        image_id,
         details,
     })
+}
+
+pub async fn scrape_emart(r2: &crate::utils::r2::R2Client, barcode: &str) -> Option<ScrapedProduct> {
+    let url = format!("https://emile.emarteveryday.co.kr/product/ProductView?skuCode={}", barcode);
+    println!(">>> [Scraper] Starting Emart scrape: barcode={}, URL={}", barcode, url);
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .build()
+        .ok()?;
+
+    let resp = client.get(&url).send().await.ok()?;
+    if !resp.status().is_success() {
+        println!(">>> [Scraper] Emart Failed: HTTP {}", resp.status());
+        return None;
+    }
+
+    let html = resp.text().await.ok()?;
+
+    // Extract main image URL
+    static RE_EMART_IMG: OnceLock<Regex> = OnceLock::new();
+    let re_emart_img = RE_EMART_IMG.get_or_init(|| {
+        Regex::new(r#"(?s)<img\s+[^>]*src="([^"]+)"[^>]*onerror="[^"]*img-empty-rect\.jpg[^"]*""#).unwrap()
+    });
+
+    let img_url = if let Some(cap) = re_emart_img.captures(&html) {
+        cap[1].to_string()
+    } else {
+        println!(">>> [Scraper] Emart Failed: No image found in HTML");
+        return None;
+    };
+
+    if img_url.contains("img-empty-rect.jpg") {
+        println!(">>> [Scraper] Emart Failed: Empty rect image");
+        return None;
+    }
+
+    // Download image bytes
+    let img_resp = client.get(&img_url).send().await.ok()?;
+    if !img_resp.status().is_success() {
+        println!(">>> [Scraper] Emart Failed: Failed to download image from {}", img_url);
+        return None;
+    }
+
+    let content_type = img_resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
+
+    let bytes = img_resp.bytes().await.ok()?.to_vec();
+
+    // Base64 encode
+    let base64_image = STANDARD.encode(&bytes);
+
+    // Analyze with Gemini
+    let analysis = crate::utils::gemini::analyze_base64_image_with_gemini(&base64_image, barcode).await.ok()?;
+
+    // Upload to R2
+    let image_id = uuid::Uuid::new_v4();
+    if upload_image_bytes(r2, bytes, &content_type, image_id).await.is_err() {
+        println!(">>> [Scraper] Emart Failed: Failed to upload image to R2");
+        return None;
+    }
+
+    println!(">>> [Scraper] Emart Success: Extracted product '{}' (Category: {})", analysis.name, analysis.category);
+
+    Some(ScrapedProduct {
+        name: analysis.name,
+        type_: parse_category(&analysis.category),
+        desc: Some(analysis.description),
+        image_id: Some(image_id),
+        details: analysis.details,
+    })
+}
+
+pub async fn upload_image_bytes(r2: &crate::utils::r2::R2Client, bytes: Vec<u8>, content_type: &str, image_id: uuid::Uuid) -> Result<(), Box<dyn std::error::Error>> {
+    let key = format!("images/{}", image_id);
+    r2.upload_image(&key, bytes, content_type).await.map_err(|e| {
+        let err_msg: Box<dyn std::error::Error> = format!("R2 upload failed: {:?}", e).into();
+        err_msg
+    })?;
+    Ok(())
 }
 
 pub async fn download_image(r2: &crate::utils::r2::R2Client, url: &str, image_id: uuid::Uuid) -> Result<(), Box<dyn std::error::Error>> {
@@ -182,30 +275,16 @@ pub async fn download_image(r2: &crate::utils::r2::R2Client, url: &str, image_id
         return Err(format!("Download failed with status: {}", resp.status()).into());
     }
 
-    let bytes = resp.bytes().await?;
-    
-    // Validate that the bytes represent a valid image
-    let img = image::load_from_memory(&bytes).map_err(|e| {
-        format!("Invalid image file from {}: {}", url, e)
-    })?;
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
 
-    let final_bytes = if bytes.len() > 100_000 {
-        let resized = img.resize(400, 400, image::imageops::FilterType::Nearest);
-        let mut buffer = std::io::Cursor::new(Vec::new());
-        resized.write_to(&mut buffer, image::ImageFormat::Jpeg)?;
-        buffer.into_inner()
-    } else {
-        let mut buffer = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut buffer, image::ImageFormat::Jpeg)?;
-        buffer.into_inner()
-    };
+    let bytes = resp.bytes().await?.to_vec();
 
-    let key = format!("images/{}", image_id);
-    r2.upload_image(&key, final_bytes, "image/jpeg").await.map_err(|e| {
-        format!("R2 upload failed: {:?}", e)
-    })?;
-
-    Ok(())
+    upload_image_bytes(r2, bytes, &content_type, image_id).await
 }
 
 /// DuckDuckGo 이미지 검색으로 제품명 검색 후 첫 번째 이미지 URL 반환
