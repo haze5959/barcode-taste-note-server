@@ -1499,10 +1499,10 @@ fn db_get_cabinets(
             .get_result(conn)
             .map_err(handler_disel_error)?;
 
-        // 3. Find up to 3 cabinet_items, ordered by registered desc
+        // 3. Find up to 3 cabinet_items
         let items: Vec<CabinetItem> = cabinet_items::table
             .filter(cabinet_items::cabinet_id.eq(cab.id))
-            .order(cabinet_items::registered.desc())
+            .order(cabinet_items::index.asc())
             .limit(3)
             .load::<CabinetItem>(conn)
             .map_err(handler_disel_error)?;
@@ -1572,10 +1572,10 @@ fn db_get_cabinet_detail(
         .optional()
         .map_err(handler_disel_error)?;
 
-    // 2. Find all cabinet_items, ordered by registered desc
+    // 2. Find all cabinet_items
     let items: Vec<CabinetItem> = cabinet_items::table
         .filter(cabinet_items::cabinet_id.eq(cab.id))
-        .order(cabinet_items::registered.desc())
+        .order(cabinet_items::index.asc())
         .load::<CabinetItem>(conn)
         .map_err(handler_disel_error)?;
 
