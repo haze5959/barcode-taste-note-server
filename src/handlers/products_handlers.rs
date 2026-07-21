@@ -1507,13 +1507,21 @@ pub async fn create_cabinet_item(
 fn db_get_cabinets(
     conn: &mut diesel::PgConnection,
     target_user_id: Uuid,
+    public_only: bool,
 ) -> Result<Vec<crate::models::CabinetListResponse>, CommonResponseError> {
     use crate::schema::{cabinets, cabinet_items, products, product_images};
     use crate::models::{Cabinet, CabinetItem, Product, CabinetProductItem, CabinetListResponse};
 
     // 1. Find cabinets of user_id, ordered by cabinet_index
-    let user_cabinets: Vec<Cabinet> = cabinets::table
-        .filter(cabinets::user_id.eq(target_user_id))
+    let mut query = cabinets::table
+        .into_boxed()
+        .filter(cabinets::user_id.eq(target_user_id));
+
+    if public_only {
+        query = query.filter(cabinets::public_scope.eq(2_i16));
+    }
+
+    let user_cabinets: Vec<Cabinet> = query
         .order(cabinets::cabinet_index.asc())
         .load::<Cabinet>(conn)
         .map_err(handler_disel_error)?;
@@ -1584,13 +1592,21 @@ fn db_get_cabinet_detail(
     conn: &mut diesel::PgConnection,
     cab_id: Uuid,
 ) -> Result<crate::models::CabinetDetailResponse, CommonResponseError> {
-    use crate::schema::{cabinets, cabinet_items, products, product_images};
-    use crate::models::{Cabinet, CabinetItem, Product, CabinetProductItem, CabinetDetailResponse};
+    use crate::schema::{cabinets, cabinet_items, products, product_images, users};
+    use crate::models::{Cabinet, CabinetItem, Product, CabinetProductItem, CabinetDetailResponse, User};
 
     // 1. Find cabinet by id
     let cab: Cabinet = cabinets::table
         .find(cab_id)
         .first::<Cabinet>(conn)
+        .map_err(handler_disel_error)?;
+
+    // 1-1. Find user by cab.user_id
+    let user_opt: Option<User> = users::table
+        .select(crate::models::USER_COLUMNS)
+        .find(cab.user_id)
+        .first::<User>(conn)
+        .optional()
         .map_err(handler_disel_error)?;
 
     // 2. Find all cabinet_items, ordered by registered desc
@@ -1636,6 +1652,7 @@ fn db_get_cabinet_detail(
         style: cab.style,
         cabinet_index: cab.cabinet_index,
         public_scope: cab.public_scope,
+        user: user_opt,
         products: products_list,
     })
 }
@@ -1649,7 +1666,7 @@ pub async fn get_cabinets_by_user_id(
     let db_clone = db.clone();
     let cabinets_list = web::block(move || {
         let conn = &mut db_clone.get().unwrap();
-        db_get_cabinets(conn, user_id_inner)
+        db_get_cabinets(conn, user_id_inner, true)
     }).await??;
 
     let response = CommonResponse {
@@ -1678,7 +1695,7 @@ pub async fn get_my_cabinets(
             Err(CommonResponseError::RecordNotFound) => register_user(conn, None, auth_info_clone.clone(), r2_clone)?.id,
             Err(e) => return Err(e),
         };
-        db_get_cabinets(conn, user_id)
+        db_get_cabinets(conn, user_id, false)
     }).await??;
 
     let response = CommonResponse {
