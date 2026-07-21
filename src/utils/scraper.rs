@@ -119,6 +119,9 @@ pub async fn scrape_barcode_lookup(r2: &crate::utils::r2::R2Client, barcode: &st
     
     if !resp.status().is_success() {
         println!(">>> [Scraper] Failed: HTTP {}", resp.status());
+        let subject = format!("[Barnote] BarcodeLookup HTTP 에러 ({})", resp.status());
+        let body = format!("URL: {}\nHTTP Status: {}", url, resp.status());
+        crate::utils::logger::send_operator_mail(subject, body);
         return None;
     }
     
