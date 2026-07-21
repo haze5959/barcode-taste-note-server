@@ -401,5 +401,6 @@ pub struct CabinetDetailResponse {
     pub style: i16,
     pub cabinet_index: i16,
     pub public_scope: i16,
+    pub user: Option<User>,
     pub products: Vec<CabinetProductItem>,
 }
