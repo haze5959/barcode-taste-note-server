@@ -416,12 +416,7 @@ pub async fn get_admin_product_details(
         };
         Ok(HttpResponse::Ok().json(response))
     } else {
-        let resp: CommonResponse<Option<()>> = CommonResponse {
-            result: false,
-            data: None,
-            error: Some(CommonResponseError::InternalServerError as u8),
-        };
-        Ok(HttpResponse::Ok().json(resp))
+        Err(CommonResponseError::InternalServerError.into())
     }
 }
 
