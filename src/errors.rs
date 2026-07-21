@@ -24,10 +24,12 @@ pub enum CommonResponseError {
 
 impl ResponseError for CommonResponseError {
     fn error_response(&self) -> HttpResponse {
+        let err_code = *self as u8;
+        log::warn!("[Error Response] Code: {} ({})", err_code, self);
         let response: CommonResponse<Option<()>> = CommonResponse {
             result: false,
             data: None,
-            error: Some(*self as u8),
+            error: Some(err_code),
         };
 
         return HttpResponse::Ok().json(response);

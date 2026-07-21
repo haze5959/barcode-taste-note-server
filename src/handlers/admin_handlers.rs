@@ -4,7 +4,7 @@ use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
 use crate::models::{CommonResponse, Product, Report, NoteSimple, NOTE_SIMPLE_COLUMNS, NoteListQuery, NoteListResponse};
-use crate::schema::{barcodes, favorites, flavor_tags, notes, product_images, products, reports};
+use crate::schema::{barcodes, cabinet_items, favorites, flavor_tags, notes, product_images, products, reports};
 use crate::handlers::notes_handlers::build_note_list_response;
 use crate::utils::auth::get_auth_info;
 use crate::utils::openai::get_embedding;
@@ -416,12 +416,7 @@ pub async fn get_admin_product_details(
         };
         Ok(HttpResponse::Ok().json(response))
     } else {
-        let resp: CommonResponse<Option<()>> = CommonResponse {
-            result: false,
-            data: None,
-            error: Some(CommonResponseError::InternalServerError as u8),
-        };
-        Ok(HttpResponse::Ok().json(resp))
+        Err(CommonResponseError::InternalServerError.into())
     }
 }
 
@@ -560,6 +555,10 @@ pub async fn merge_admin_product(
                 
             diesel::update(flavor_tags::table.filter(flavor_tags::product_id.eq(item.product_id)))
                 .set(flavor_tags::product_id.eq(item.to_product_id))
+                .execute(conn)?;
+                
+            diesel::update(cabinet_items::table.filter(cabinet_items::product_id.eq(item.product_id)))
+                .set(cabinet_items::product_id.eq(item.to_product_id))
                 .execute(conn)?;
                 
             diesel::delete(products::table.find(item.product_id))

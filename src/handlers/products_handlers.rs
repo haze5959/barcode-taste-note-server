@@ -108,12 +108,7 @@ pub async fn create_product(
     let mut item_inner = item.into_inner();
 
     if crate::utils::block_list::PRODUCT_BLOCK_LIST.contains(&item_inner.name.to_lowercase().as_str()) {
-        let resp: CommonResponse<Option<()>> = CommonResponse {
-            result: false,
-            data: None,
-            error: Some(CommonResponseError::BlockedProduct as u8),
-        };
-        return Ok(HttpResponse::Ok().json(resp));
+        return Err(CommonResponseError::BlockedProduct.into());
     }
 
     let barcode_opt = item_inner.barcode_id.clone();
@@ -199,12 +194,7 @@ pub async fn create_product_by_ai(
 
     // 1. Rate Limiting Check
     if !crate::utils::rate_limit::check_and_increment_api_usage(&user_sub, 20) {
-        let resp: CommonResponse<Option<()>> = CommonResponse {
-            result: false,
-            data: None,
-            error: Some(CommonResponseError::ExceedMaxCount as u8),
-        };
-        return Ok(HttpResponse::Ok().json(resp));
+        return Err(CommonResponseError::ExceedMaxCount.into());
     }
 
     // 2. Gemini Analysis
@@ -212,12 +202,7 @@ pub async fn create_product_by_ai(
         Ok(res) => res,
         Err(e) => {
             error!("[Gemini Error] {}", e);
-            let resp: CommonResponse<Option<()>> = CommonResponse {
-                result: false,
-                data: None,
-                error: Some(CommonResponseError::FailedToAnalyzeImage as u8),
-            };
-            return Ok(HttpResponse::Ok().json(resp));
+            return Err(CommonResponseError::FailedToAnalyzeImage.into());
         }
     };
 
@@ -1042,12 +1027,7 @@ async fn process_get_product_by_barcode(
         Err(crate::errors::CommonResponseError::RecordNotFound) => {
             // 이미 스크래핑 실패 이력이 있는 바코드면, 재시도하지 않고 실패 횟수만 +1 후 실패 응답
             if crate::utils::logger::check_and_increment_fail_barcode(&barcode_str) {
-                let response: CommonResponse<Option<()>> = CommonResponse {
-                    result: false,
-                    data: None,
-                    error: Some(crate::errors::CommonResponseError::RecordNotFound as u8),
-                };
-                return Ok(HttpResponse::Ok().json(response));
+                return Err(CommonResponseError::RecordNotFound.into());
             }
 
             // 한국 요청일 경우 이마트에서 스크랩핑
@@ -1109,10 +1089,7 @@ async fn process_get_product_by_barcode(
                             let response = CommonResponse { result: true, data: detail, error: None };
                             return Ok(HttpResponse::Ok().json(response));
                         }
-                        Err(e) => {
-                            let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
-                            return Ok(HttpResponse::Ok().json(response));
-                        }
+                        Err(e) => return Err(e.into()),
                     }
                 }
 
@@ -1136,16 +1113,10 @@ async fn process_get_product_by_barcode(
                                 let response = CommonResponse { result: true, data: detail, error: None };
                                 Ok(HttpResponse::Ok().json(response))
                             }
-                            Err(e) => {
-                                let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
-                                Ok(HttpResponse::Ok().json(response))
-                            }
+                            Err(e) => Err(e.into()),
                         }
                     }
-                    Err(e) => {
-                        let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
-                        Ok(HttpResponse::Ok().json(response))
-                    }
+                    Err(e) => Err(e.into()),
                 }
             } else {
                 // 스크래핑까지 실패 → 실패 바코드 목록에 신규 추가 (다음 요청부터는 스크래핑 생략)
@@ -1153,18 +1124,10 @@ async fn process_get_product_by_barcode(
                     crate::utils::logger::record_fail_barcode(&barcode_str);
                     crate::utils::logger::log_barcode_request(false, &barcode_str, None).await;
                 }
-                let response: CommonResponse<Option<()>> = CommonResponse {
-                    result: false,
-                    data: None,
-                    error: Some(crate::errors::CommonResponseError::RecordNotFound as u8),
-                };
-                Ok(HttpResponse::Ok().json(response))
+                Err(CommonResponseError::RecordNotFound.into())
             }
         }
-        Err(e) => {
-            let response: CommonResponse<Option<()>> = CommonResponse { result: false, data: None, error: Some(e as u8) };
-            Ok(HttpResponse::Ok().json(response))
-        }
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -1536,10 +1499,10 @@ fn db_get_cabinets(
             .get_result(conn)
             .map_err(handler_disel_error)?;
 
-        // 3. Find up to 3 cabinet_items, ordered by registered desc
+        // 3. Find up to 3 cabinet_items
         let items: Vec<CabinetItem> = cabinet_items::table
             .filter(cabinet_items::cabinet_id.eq(cab.id))
-            .order(cabinet_items::registered.desc())
+            .order(cabinet_items::index.asc())
             .limit(3)
             .load::<CabinetItem>(conn)
             .map_err(handler_disel_error)?;
@@ -1609,10 +1572,10 @@ fn db_get_cabinet_detail(
         .optional()
         .map_err(handler_disel_error)?;
 
-    // 2. Find all cabinet_items, ordered by registered desc
+    // 2. Find all cabinet_items
     let items: Vec<CabinetItem> = cabinet_items::table
         .filter(cabinet_items::cabinet_id.eq(cab.id))
-        .order(cabinet_items::registered.desc())
+        .order(cabinet_items::index.asc())
         .load::<CabinetItem>(conn)
         .map_err(handler_disel_error)?;
 
