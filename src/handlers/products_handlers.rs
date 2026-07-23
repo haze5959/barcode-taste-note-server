@@ -55,6 +55,7 @@ pub struct ProductListQuery {
     #[serde(rename = "type")]
     pub type_: Option<i16>,
     pub order_by: Option<String>,
+    pub skip_record: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -459,7 +460,10 @@ pub async fn get_products_list(
 
     // 이름 검색어가 있는 경우: LIKE 검색 우선
     if let Some(ref name) = query_inner.name {
-        crate::utils::logger::log_search_history(name).await;
+        let skip_record = query_inner.skip_record.unwrap_or(false);
+        if !skip_record {
+            crate::utils::logger::log_search_history(name).await;
+        }
         let name_clone = name.clone();
         let db_clone = db.clone();
         let query_clone = ProductListQuery {
@@ -468,6 +472,7 @@ pub async fn get_products_list(
             name: query_inner.name.clone(),
             type_: query_inner.type_,
             order_by: query_inner.order_by.clone(),
+            skip_record: query_inner.skip_record,
         };
 
         // 1단계: LIKE 검색
@@ -493,6 +498,7 @@ pub async fn get_products_list(
             name: query_inner.name,
             type_: query_inner.type_,
             order_by: query_inner.order_by,
+            skip_record: query_inner.skip_record,
         };
         let vec_results = web::block(move || db_search_products_by_vector(db, query_for_vec, embedding)).await??;
         let response = CommonResponse { result: true, data: vec_results, error: None };
@@ -554,6 +560,7 @@ pub async fn get_favorite_products_list_by_user_id(
         name: None,
         type_: query_inner.type_,
         order_by: query_inner.order_by,
+        skip_record: None
     };
 
     let products_list = web::block(move || db_get_favorite_products_by_user_id(db, product_query, user_id, None)).await??;
@@ -893,7 +900,7 @@ fn db_search_products_by_like(
             diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) LIKE ")
                 .bind::<diesel::sql_types::Text, _>(like_pattern)
         )
-        .order(products::registered.desc());
+        .order((products::note_count.desc(), products::rating.desc().nulls_last()));
 
     if let Some(type_filter) = query.type_ {
         like_query = like_query.filter(products::type_.eq(type_filter));
