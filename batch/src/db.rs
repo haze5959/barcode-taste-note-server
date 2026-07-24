@@ -17,6 +17,7 @@ pub struct NewProduct<'a> {
     pub registered: DateTime<Utc>,
     pub embedding: Option<pgvector::Vector>,
     pub details: Option<serde_json::Value>,
+    pub is_verified: bool,
 }
 
 /// barcodes 테이블 Insertable
@@ -124,6 +125,7 @@ pub fn update_product_info(
             products::dsl::desc.eq(new_desc),
             products::dsl::type_.eq(new_type),
             products::dsl::details.eq(new_details),
+            products::dsl::is_verified.eq(true),
         ))
         .execute(conn)
 }

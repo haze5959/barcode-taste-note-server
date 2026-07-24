@@ -133,6 +133,7 @@ diesel::table! {
         note_count -> Int4,
         embedding -> Nullable<Vector>,
         details -> Nullable<Jsonb>,
+        is_verified -> Bool,
     }
 }
 

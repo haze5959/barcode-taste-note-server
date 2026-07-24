@@ -39,6 +39,7 @@ pub struct AdminUpdateProductParams {
     #[serde(rename = "type")]
     pub type_: Option<i16>,
     pub details: Option<serde_json::Value>,
+    pub is_verified: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -435,6 +436,7 @@ pub async fn update_admin_product(
     let desc = item.desc.clone();
     let type_ = item.type_;
     let details = item.details.clone();
+    let is_verified = item.is_verified;
 
     // 임베딩 갱신 필요 여부
     let new_embedding = if let Some(ref new_name) = name {
@@ -444,7 +446,7 @@ pub async fn update_admin_product(
     };
 
     let updated_product = web::block(move || {
-        db_update_admin_product(db, product_id, name, desc, type_, details, new_embedding)
+        db_update_admin_product(db, product_id, name, desc, type_, details, is_verified, new_embedding)
     })
     .await??;
 
@@ -465,6 +467,7 @@ struct AdminProductChangeset {
     type_: Option<i16>,
     embedding: Option<Vector>,
     details: Option<serde_json::Value>,
+    is_verified: Option<bool>,
 }
 
 fn db_update_admin_product(
@@ -474,6 +477,7 @@ fn db_update_admin_product(
     desc: Option<String>,
     type_: Option<i16>,
     details: Option<serde_json::Value>,
+    is_verified: Option<bool>,
     new_embedding: Option<Vector>,
 ) -> Result<Product, CommonResponseError> {
     let conn = &mut pool.get().unwrap();
@@ -484,6 +488,7 @@ fn db_update_admin_product(
         type_,
         embedding: new_embedding,
         details,
+        is_verified,
     };
 
     let updated_product = conn.transaction::<Product, CommonResponseError, _>(|conn| {

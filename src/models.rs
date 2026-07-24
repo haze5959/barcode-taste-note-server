@@ -64,6 +64,7 @@ pub struct Product {
     pub registered: DateTime<Utc>,
     pub note_count: i32,
     pub details: Option<serde_json::Value>,
+    pub is_verified: bool,
 }
 
 pub type ProductColumns = (
@@ -76,6 +77,7 @@ pub type ProductColumns = (
     crate::schema::products::registered,
     crate::schema::products::note_count,
     crate::schema::products::details,
+    crate::schema::products::is_verified,
 );
 
 pub const PRODUCT_COLUMNS: ProductColumns = (
@@ -88,6 +90,7 @@ pub const PRODUCT_COLUMNS: ProductColumns = (
     crate::schema::products::registered,
     crate::schema::products::note_count,
     crate::schema::products::details,
+    crate::schema::products::is_verified,
 );
 
 #[derive(Queryable, Serialize, Deserialize, Debug, Clone)]

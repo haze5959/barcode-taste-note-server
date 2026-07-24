@@ -502,7 +502,7 @@ fn db_get_notes_list(
 
     match query.order_by.as_deref() {
         Some("rating") => {
-            notes_query = notes_query.order(notes::rating.desc());
+            notes_query = notes_query.order((notes::rating.desc(), notes::registered.desc()));
         }
         _ => {
             notes_query = notes_query.order(notes::registered.desc());
@@ -625,7 +625,7 @@ fn db_get_notes_by_user(
 
     match query.order_by.as_deref() {
         Some("rating") => {
-            notes_query = notes_query.order(notes::rating.desc());
+            notes_query = notes_query.order((notes::rating.desc(), notes::registered.desc()));
         }
         _ => {
             // default: "registered"
@@ -968,7 +968,7 @@ fn db_get_api_notes_list(
 
     match query.order_by.as_deref() {
         Some("rating") => {
-            notes_query = notes_query.order(notes::rating.desc());
+            notes_query = notes_query.order((notes::rating.desc(), notes::registered.desc()));
         }
         _ => {
             notes_query = notes_query.order(notes::registered.desc());

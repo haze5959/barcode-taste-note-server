@@ -295,13 +295,40 @@ pub async fn create_product_by_ai(
 // MARK: Handler for GET
 // ============================================
 
+fn check_unverified_product_and_notify(product: &Product) {
+    if !product.is_verified {
+        let now = chrono::Utc::now();
+        if now - product.registered >= chrono::Duration::days(3) {
+            let subject = format!("[Barnote] 검증되지 않은 제품 조회: {}", product.name);
+            let body = format!(
+                "검증되지 않은 제품을 조회했습니다.\n\n- 제품명: {}\n- 등록일시: {}",
+                product.name,
+                product.registered.format("%Y-%m-%d %H:%M:%S UTC")
+            );
+            crate::utils::logger::send_operator_mail(subject, body);
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProductDetailQuery {
+    pub skip_record: Option<bool>,
+}
+
 /// Path: /products/{id}
 pub async fn get_product_by_id(
     db: web::Data<Pool>,
     in_product_id: web::Path<Uuid>,
+    query: web::Query<ProductDetailQuery>,
 ) -> Result<HttpResponse, Error> {
+    let skip_record = query.into_inner().skip_record.unwrap_or(false);
     let product_detail =
         web::block(move || db_get_product_by_id(db, in_product_id.into_inner(), None)).await??;
+
+    if !skip_record {
+        check_unverified_product_and_notify(&product_detail.product);
+    }
+
     let response = CommonResponse {
         result: true,
         data: product_detail,
@@ -315,11 +342,18 @@ pub async fn get_product_by_id_with_auth(
     req: HttpRequest,
     db: web::Data<Pool>,
     in_product_id: web::Path<Uuid>,
+    query: web::Query<ProductDetailQuery>,
 ) -> Result<HttpResponse, Error> {
     let auth_info = get_auth_info(req)?;
     let user_sub = auth_info.sub;
+    let skip_record = query.into_inner().skip_record.unwrap_or(false);
     let product_detail =
         web::block(move || db_get_product_by_id(db, in_product_id.into_inner(), Some(user_sub))).await??;
+
+    if !skip_record {
+        check_unverified_product_and_notify(&product_detail.product);
+    }
+
     let response = CommonResponse {
         result: true,
         data: product_detail,
@@ -417,7 +451,7 @@ fn db_autocomplete_by_like(
             diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) LIKE ")
                 .bind::<diesel::sql_types::Text, _>(like_pattern)
         )
-        .order((products::note_count.desc(), products::rating.desc().nulls_last()))
+        .order((products::note_count.desc(), products::rating.desc().nulls_last(), products::registered.desc()))
         .limit(10)
         .select(products::name);
 
@@ -900,7 +934,7 @@ fn db_search_products_by_like(
             diesel::dsl::sql::<diesel::sql_types::Bool>("LOWER(name) LIKE ")
                 .bind::<diesel::sql_types::Text, _>(like_pattern)
         )
-        .order((products::note_count.desc(), products::rating.desc().nulls_last()));
+        .order((products::note_count.desc(), products::rating.desc().nulls_last(), products::registered.desc()));
 
     if let Some(type_filter) = query.type_ {
         like_query = like_query.filter(products::type_.eq(type_filter));
@@ -1023,6 +1057,7 @@ async fn process_get_product_by_barcode(
             if !skip_record {
                 crate::utils::logger::log_barcode_request(true, &barcode_str, Some(&detail.product.name)).await;
                 crate::utils::logger::record_success_barcode(&barcode_str);
+                check_unverified_product_and_notify(&detail.product);
             }
             let response = CommonResponse {
                 result: true,

@@ -109,6 +109,7 @@ pub async fn run(conn: &mut PgConnection, r2: &R2Client) {
                 registered: Utc::now(),
                 embedding: None, // 배치에서는 임베딩 생략
                 details: item.details.clone(),
+                is_verified: true,
             };
 
             if let Err(e) = insert_product(conn, &new_product) {
