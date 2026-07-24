@@ -103,7 +103,28 @@ pub struct ProductLite {
     pub rating: Option<f32>,
     pub registered: DateTime<Utc>,
     pub note_count: i32,
+    pub is_verified: bool,
 }
+
+pub type ProductSimpleColumns = (
+    crate::schema::products::id,
+    crate::schema::products::name,
+    crate::schema::products::type_,
+    crate::schema::products::rating,
+    crate::schema::products::registered,
+    crate::schema::products::note_count,
+    crate::schema::products::is_verified,
+);
+
+pub const PRODUCT_SIMPLE_COLUMNS: ProductSimpleColumns = (
+    crate::schema::products::id,
+    crate::schema::products::name,
+    crate::schema::products::type_,
+    crate::schema::products::rating,
+    crate::schema::products::registered,
+    crate::schema::products::note_count,
+    crate::schema::products::is_verified,
+);
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = products)]

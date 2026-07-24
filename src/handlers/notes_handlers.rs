@@ -3,7 +3,7 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple, NoteListQuery, NoteListResponse};
+use crate::models::{CommonResponse, NewFlavorTag, NewNote, Note, ProductLite, User, NOTE_COLUMNS, NOTE_SIMPLE_COLUMNS, NoteSimple, NoteListQuery, NoteListResponse, PRODUCT_SIMPLE_COLUMNS};
 use crate::schema::{flavor_tags, notes, product_images, products, users};
 use crate::utils::auth::{get_auth_info, AuthInfo};
 use crate::utils::db::get_user_id_by_sub;
@@ -438,7 +438,7 @@ fn db_get_note_by_id(
 
     let product = products::table
         .find(note.product_id)
-        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+        .select(PRODUCT_SIMPLE_COLUMNS)
         .first::<ProductLite>(conn)
         .map_err(handler_disel_error)?;
 
@@ -559,7 +559,7 @@ pub(crate) fn build_note_list_response(
     for note in notes_list {
         let product = products::table
                 .find(note.product_id)
-                .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+                .select(PRODUCT_SIMPLE_COLUMNS)
                 .first::<ProductLite>(conn)
                 .ok();
 

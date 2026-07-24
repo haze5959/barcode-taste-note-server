@@ -4,7 +4,7 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{CommonResponse, User, ProductLite, Note, Report, NewReport};
+use crate::models::{CommonResponse, User, ProductLite, Note, Report, NewReport, PRODUCT_SIMPLE_COLUMNS};
 use crate::schema::{product_images, reports, users, products, notes};
 use crate::handlers::products_handlers::ProductListItem;
 use crate::handlers::notes_handlers::NoteResponse;
@@ -144,7 +144,7 @@ fn db_get_products_list(pool: web::Data<Pool>) -> Result<Vec<ProductListItem>, C
 
     // 제품 리스트 조회 (note_count가 1 이상인 제품만)
     let products_list: Vec<ProductLite> = products::table
-        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+        .select(PRODUCT_SIMPLE_COLUMNS)
         .filter(products::note_count.ge(1))
         .order(products::registered.desc())
         .limit(HOME_INFO_LENGTH)
@@ -193,7 +193,7 @@ fn db_get_notes_list(pool: web::Data<Pool>) -> Result<Vec<NoteResponse>, CommonR
     for note in notes_list {
         let product = products::table
             .find(note.product_id)
-            .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+            .select(PRODUCT_SIMPLE_COLUMNS)
             .first::<ProductLite>(conn)
             .ok();
 

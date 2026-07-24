@@ -3,7 +3,7 @@ use crate::diesel::QueryDsl;
 use crate::diesel::RunQueryDsl;
 use crate::errors::CommonResponseError;
 use crate::errors::handler_disel_error;
-use crate::models::{Barcode, CommonResponse, NewBarcode, NewProduct, Product, ProductLite, NewFavorite};
+use crate::models::{Barcode, CommonResponse, NewBarcode, NewProduct, Product, ProductLite, NewFavorite, PRODUCT_SIMPLE_COLUMNS};
 use crate::schema::{barcodes, favorites, product_images, products};
 use crate::utils::auth::{get_auth_info, AuthInfo};
 use crate::utils::db::get_user_id_by_sub;
@@ -941,7 +941,7 @@ fn db_search_products_by_like(
     }
 
     let results: Vec<ProductLite> = like_query
-        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+        .select(PRODUCT_SIMPLE_COLUMNS)
         .offset(offset)
         .limit(per)
         .load::<ProductLite>(conn)
@@ -972,7 +972,7 @@ fn db_search_products_by_vector(
     }
 
     let results: Vec<ProductLite> = vec_query
-        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+        .select(PRODUCT_SIMPLE_COLUMNS)
         .offset(offset)
         .limit(per)
         .load::<ProductLite>(conn)
@@ -1008,7 +1008,7 @@ fn db_get_products_list_default(
     }
 
     let products_list: Vec<ProductLite> = products_query
-        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+        .select(PRODUCT_SIMPLE_COLUMNS)
         .offset(offset)
         .limit(per)
         .load::<ProductLite>(conn)
@@ -1232,7 +1232,7 @@ fn db_get_favorite_products_by_user_id(
     }
 
     let products_list: Vec<ProductLite> = products_query
-        .select((products::id, products::name, products::type_, products::rating, products::registered, products::note_count))
+        .select(PRODUCT_SIMPLE_COLUMNS)
         .load::<ProductLite>(conn)
         .map_err(handler_disel_error)?;
 
@@ -1326,7 +1326,7 @@ fn db_get_tasted_products(
     // Diesel에서는 GROUP BY로 복잡한 최신 row 가져오기 및 Join, limit 처리가 까다로움.
     // PostgreSQL 전용 `DISTINCT ON`을 수동 SQL(raw sql)로 사용하거나 Query builder를 조합.
     let mut sql_query_str = String::from(
-        "SELECT p.id, p.name, p.type as type_, p.rating as p_rating, p.registered, p.note_count, \
+        "SELECT p.id, p.name, p.type as type_, p.rating as p_rating, p.registered, p.note_count, p.is_verified, \
          n.rating as n_rating \
          FROM ( \
             SELECT DISTINCT ON (product_id) product_id, rating, registered \
@@ -1360,6 +1360,8 @@ fn db_get_tasted_products(
         registered: chrono::DateTime<Utc>,
         #[diesel(sql_type = diesel::sql_types::Int4)]
         note_count: i32,
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        is_verified: bool,
         #[diesel(sql_type = diesel::sql_types::Int2)]
         n_rating: i16,
     }
@@ -1378,6 +1380,7 @@ fn db_get_tasted_products(
             rating: raw.p_rating,
             registered: raw.registered,
             note_count: raw.note_count,
+            is_verified: raw.is_verified,
         };
 
         // 제품 이미지 ID들 조회 (최대 3개)
